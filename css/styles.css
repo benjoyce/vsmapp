@@ -1,0 +1,174 @@
+/* Move all styles from the original file here */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+}
+
+.container {
+    max-width: 1800px;
+    margin: 0 auto;
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.header p {
+    color: #7f8c8d;
+    margin: 0;
+}
+
+.main-content {
+    display: flex;
+    gap: 20px;
+}
+
+.editor-panel, .visualization-panel {
+    flex: 1;
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+}
+
+.panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.panel-title {
+    margin: 0;
+    color: #2c3e50;
+}
+
+.parse-button {
+    background: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.parse-button:hover {
+    background: #45a049;
+}
+
+.editor {
+    width: 100%;
+    height: 600px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 14px;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    resize: none;
+}
+
+.canvas-container {
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: white;
+}
+
+.process-box {
+    fill: white;
+    stroke: #2c3e50;
+    stroke-width: 2;
+}
+
+.process-box.critical {
+    stroke: #e74c3c;
+    stroke-width: 3;
+}
+
+.process-text {
+    text-anchor: middle;
+    font-weight: bold;
+}
+
+.process-details {
+    text-anchor: middle;
+    font-size: 12px;
+}
+
+.flow-line {
+    fill: none;
+    stroke: #2c3e50;
+    stroke-width: 2;
+    marker-end: url(#arrowhead);
+}
+
+.flow-line.critical {
+    stroke: #e74c3c;
+    stroke-width: 3;
+}
+
+.info-flow-line {
+    fill: none;
+    stroke: #3498db;
+    stroke-width: 2;
+    stroke-dasharray: 5,5;
+    marker-end: url(#arrowhead);
+}
+
+.wait-time-label {
+    font-size: 12px;
+    fill: #7f8c8d;
+}
+
+.error {
+    color: #e74c3c;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #e74c3c;
+    border-radius: 4px;
+    background: #fdf3f2;
+}
+
+.totals-strip {
+    background: #f8f9fa;
+    border-top: 2px solid #ecf0f1;
+    margin-top: 20px;
+    padding: 15px 20px;
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+}
+
+.total-item {
+    text-align: center;
+}
+
+.total-label {
+    font-size: 0.9em;
+    color: #7f8c8d;
+    margin-bottom: 5px;
+}
+
+.total-value {
+    font-size: 1.2em;
+    color: #2c3e50;
+    font-weight: bold;
+}
+
+.critical-path {
+    font-size: 0.85em;
+    color: #e67e22;
+    margin-top: 5px;
+}

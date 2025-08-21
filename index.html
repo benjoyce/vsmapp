@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Value Stream Map Visualizer</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Value Stream Map Visualizer</h1>
+            <p>Define your processes and flows using our DSL, then visualize your value stream map</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="editor-panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">DSL Editor</h3>
+                    <button class="parse-button" onclick="window.parseAndVisualize()">Generate VSM</button>
+                </div>
+                <textarea id="dslEditor" class="editor" placeholder="Enter your VSM DSL here...">process stamping {
+  stage_id: 1
+  name: "Sheet Metal Stamping"
+  owner: "Manufacturing Team A"
+  description: "High-pressure stamping of steel sheets"
+  lead_time: 3.2d
+  cycle_time: 45s
+  process_time: 40s
+  batch_size: 100
+  defect_rate: 2.5
+}
+
+process welding {
+  stage_id: 2
+  name: "Spot Welding Assembly"
+  owner: "Welding Department"
+  description: "Robotic spot welding of stamped components"
+  lead_time: 1.8d
+  cycle_time: 60s
+  process_time: 55s
+  batch_size: 50
+  defect_rate: 1.2
+}
+
+process photography {
+  stage_id: 3
+  name: "Quality Photography"
+  owner: "QC Documentation Team"
+  description: "Digital photography for quality records"
+  lead_time: 1.2d
+  cycle_time: 30s
+  process_time: 25s
+  batch_size: 100
+  defect_rate: 0.5
+}
+
+process assembly {
+  stage_id: 4
+  name: "Final Door Assembly"
+  owner: "Assembly Line Team"
+  description: "Installation of hinges, handles, weather stripping"
+  lead_time: 2.5d
+  cycle_time: 90s
+  process_time: 85s
+  batch_size: 25
+  defect_rate: 3.1
+}
+
+flow from stamping to welding {
+  wait_time: 0.5d
+}
+
+flow from stamping to photography {
+  wait_time: 0.3d
+}
+
+flow from welding to assembly {
+  wait_time: 1.8d
+}
+
+flow from photography to assembly {
+  wait_time: 2.1d
+}</textarea>
+            </div>
+            
+            <div class="visualization-panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">Value Stream Map</h3>
+                </div>
+                <div class="canvas-container">
+                    <svg id="vsmCanvas" width="900" height="700"></svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="totals-strip">
+            <div class="total-item">
+                <div class="total-label">Total Lead Time</div>
+                <div class="total-value" id="totalLeadTime">-</div>
+            </div>
+            <div class="total-item">
+                <div class="total-label">Total Wait Time</div>
+                <div class="total-value" id="totalWaitTime">-</div>
+            </div>
+            <div class="total-item">
+                <div class="total-label">Total Process Time</div>
+                <div class="total-value" id="totalProcessTime">-</div>
+            </div>
+            <div class="total-item">
+                <div class="total-label">Critical Path</div>
+                <div class="critical-path" id="criticalPath">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import VSMParser from './js/VSMParser.js';
+        import VSMVisualizer from './js/VSMVisualizer.js';
+
+        const parser = new VSMParser();
+        const visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
+
+        function parseAndVisualize() {
+            const dslText = document.getElementById('dslEditor').value;
+            
+            try {
+                const parsedData = parser.parse(dslText);
+                visualizer.visualize(parsedData);
+                
+                // Remove any existing error messages
+                const existingError = document.querySelector('.error');
+                if (existingError) {
+                    existingError.remove();
+                }
+            } catch (error) {
+                // Display error message
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.textContent = `Parse Error: ${error.message}`;
+                
+                const canvasContainer = document.querySelector('.canvas-container');
+                const existingError = document.querySelector('.error');
+                if (existingError) {
+                    existingError.remove();
+                }
+                canvasContainer.insertBefore(errorDiv, document.getElementById('vsmCanvas'));
+            }
+        }
+
+        // Make parseAndVisualize available globally
+        window.parseAndVisualize = parseAndVisualize;
+
+        // Parse and visualize on page load
+        window.onload = parseAndVisualize;
+
+        // Auto-parse when typing (with debounce)
+        let parseTimeout;
+        document.getElementById('dslEditor').addEventListener('input', function() {
+            clearTimeout(parseTimeout);
+            parseTimeout = setTimeout(parseAndVisualize, 1000);
+        });
+    </script>
+</body>
+</html>
