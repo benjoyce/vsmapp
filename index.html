@@ -125,7 +125,6 @@ flow from photography to assembly {
         let visualizer;
 
         async function initializeVSM() {
-            // Ensure DOM is fully loaded
             await new Promise(resolve => {
                 if (document.readyState === 'loading') {
                     document.addEventListener('DOMContentLoaded', resolve);
@@ -135,13 +134,28 @@ flow from photography to assembly {
             });
 
             visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
-            parseAndVisualize();
+            
+            // Try to load saved state from localStorage
+            const savedState = localStorage.getItem('vsmState');
+            if (savedState) {
+                try {
+                    const state = JSON.parse(savedState);
+                    visualizer.visualize(state);
+                } catch (e) {
+                    console.error('Error loading saved state:', e);
+                    // Fall back to parsing current DSL
+                    parseAndVisualize();
+                }
+            } else {
+                // No saved state, parse current DSL
+                parseAndVisualize();
+            }
         }
 
         function saveVSM() {
             if (visualizer) {
                 visualizer.saveState();
-                // Show feedback
+                // Show feedback to user
                 const feedback = document.createElement('div');
                 feedback.textContent = 'VSM saved successfully';
                 feedback.style.position = 'fixed';
@@ -184,6 +198,7 @@ flow from photography to assembly {
         }
 
         // Make functions available globally
+        window.parser = parser;
         window.saveVSM = saveVSM;
         window.parseAndVisualize = parseAndVisualize;
 

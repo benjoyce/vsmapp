@@ -270,6 +270,9 @@ export default class VSMVisualizer {
                 
                 this.positions[processId] = { x: newX, y: newY };
                 this.redrawFlows();
+
+                // Update the DSL editor with new positions
+                this.updateDSLWithPositions();
             }
         };
         
@@ -280,6 +283,39 @@ export default class VSMVisualizer {
         };
         
         group.addEventListener('mousedown', startDrag);
+    }
+
+    // Add this new method to handle DSL updates
+    updateDSLWithPositions() {
+        const currentState = {
+            processes: this.currentProcesses,
+            flows: this.currentFlows,
+            infoFlows: this.currentInfoFlows,
+            positions: this.positions
+        };
+
+        // Get the current editor text and find the positions block
+        let editorText = document.getElementById('dslEditor').value;
+        const positionsStart = editorText.indexOf('positions {');
+        
+        if (positionsStart !== -1) {
+            // Find the end of positions block
+            const positionsEnd = editorText.indexOf('}', positionsStart) + 1;
+            // Remove existing positions block
+            editorText = editorText.substring(0, positionsStart) + 
+                        editorText.substring(positionsEnd).trimStart();
+        }
+
+        // Format new positions block
+        let positionsBlock = 'positions {\n';
+        Object.entries(this.positions).forEach(([id, pos]) => {
+            positionsBlock += `  ${id}: ${Math.round(pos.x)}, ${Math.round(pos.y)}\n`;
+        });
+        positionsBlock += '}\n';
+
+        // Add positions block at the end of the DSL
+        document.getElementById('dslEditor').value = 
+            editorText.trim() + '\n\n' + positionsBlock;
     }
 
     redrawFlows() {
@@ -371,24 +407,36 @@ export default class VSMVisualizer {
         };
     }
 
+    saveState() {
+        const currentState = {
+            processes: this.currentProcesses,
+            flows: this.currentFlows,
+            infoFlows: this.currentInfoFlows,
+            positions: this.positions
+        };
+
+        // Update the DSL text with positions
+        const dslText = window.parser.serialize(currentState);
+        document.getElementById('dslEditor').value = dslText;
+
+        // Save to localStorage as backup
+        localStorage.setItem('vsmState', JSON.stringify(currentState));
+    }
+
     visualize(data) {
-        console.log('Visualizing data:', data);
         this.setupSVG();
         
-        // Store current data for updates
         this.currentProcesses = data.processes;
         this.currentFlows = data.flows;
         this.currentInfoFlows = data.infoFlows;
         
+        // Use existing positions or calculate new ones
+        this.positions = data.positions && Object.keys(data.positions).length > 0 
+            ? data.positions 
+            : this.calculatePositions(data.processes, data.flows);
+        
         this.criticalPathData = this.calculateCriticalPath(data.processes, data.flows);
-        console.log('Critical path:', this.criticalPathData);
         
-        // Use saved positions if available, otherwise calculate new ones
-        this.positions = this.savedPositions || this.calculatePositions(data.processes, data.flows);
-        console.log('Positions:', this.positions);
-        this.savedPositions = null; // Clear saved positions after using them
-        
-        // Draw the visualization
         this.drawProcesses(data.processes, this.positions);
         this.drawFlows(data.flows, this.positions);
         
@@ -405,14 +453,6 @@ export default class VSMVisualizer {
         document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)}d`;
         document.getElementById('criticalPath').textContent = 
             `${this.criticalPathData.time.toFixed(1)}d (${this.criticalPathData.path.join(' → ')})`;
-    }
-
-    saveState() {
-        const state = {
-            dsl: document.getElementById('dslEditor').value,
-            positions: this.positions
-        };
-        localStorage.setItem('vsmState', JSON.stringify(state));
     }
 
     loadState() {
