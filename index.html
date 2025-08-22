@@ -124,15 +124,7 @@ flow from photography to assembly {
         const parser = new VSMParser();
         let visualizer;
 
-        async function initializeVSM() {
-            await new Promise(resolve => {
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', resolve);
-                } else {
-                    resolve();
-                }
-            });
-
+        function initializeVSM() {
             visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
             
             // Try to load saved state from localStorage
@@ -150,6 +142,15 @@ flow from photography to assembly {
                 // No saved state, parse current DSL
                 parseAndVisualize();
             }
+
+            // Add DSL editor change listener with debounce
+            let dslTimeout;
+            document.getElementById('dslEditor').addEventListener('input', () => {
+                clearTimeout(dslTimeout);
+                dslTimeout = setTimeout(() => {
+                    visualizer.parseDSLChanges();
+                }, 500); // Wait 500ms after typing stops
+            });
         }
 
         function saveVSM() {

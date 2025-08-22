@@ -117,18 +117,24 @@ export default class VSMVisualizer {
 
             // Process attributes
             const attributes = [
-                `CT: ${process.attributes.cycle_time || 'N/A'}`,
-                `LT: ${process.attributes.lead_time || 'N/A'}`,
-                `Batch: ${process.attributes.batch_size || 'N/A'}`,
-                `Defect: ${process.attributes.defect_rate || 'N/A'}%`
+                { key: 'PT', value: process.attributes.cycle_time || 'N/A' },  // Changed from CT to PT
+                { key: 'LT', value: process.attributes.lead_time || 'N/A' },
+                { key: 'Batch', value: process.attributes.batch_size || 'N/A' },
+                { key: 'Defect', value: `${process.attributes.defect_rate || 'N/A'}%` }
             ];
 
-            attributes.forEach((detail, i) => {
+            attributes.forEach((attr, i) => {
                 const detailText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
                 detailText.setAttribute('x', pos.x + this.processWidth / 2);
                 detailText.setAttribute('y', pos.y + 45 + i * 15);
                 detailText.setAttribute('class', 'process-details');
-                detailText.textContent = detail;
+                detailText.textContent = `${attr.key}: ${attr.value}`;
+                
+                // Make PT editable (changed from CT)
+                if (attr.key === 'PT') {
+                    this.makePTEditable(detailText, processId);  // Changed from makeCTEditable to makePTEditable
+                }
+                
                 group.appendChild(detailText);
             });
 
@@ -325,11 +331,9 @@ export default class VSMVisualizer {
 
     calculateCriticalPath(processes, flows) {
         const convertTime = (timeStr) => {
-            if (!timeStr) return 0;
-            const value = parseFloat(timeStr);
-            return timeStr.endsWith('d') ? value : value / 86400;
+            return this.convertTimeToStandardUnit(timeStr);
         };
-
+        
         // Build directed graph with times
         const graph = {};
         Object.keys(processes).forEach(id => {
@@ -440,19 +444,8 @@ export default class VSMVisualizer {
         this.drawProcesses(data.processes, this.positions);
         this.drawFlows(data.flows, this.positions);
         
-        // Update totals
-        const totalLeadTime = Object.values(data.processes)
-            .reduce((sum, process) => sum + parseFloat(process.attributes.lead_time), 0);
-        const totalWaitTime = data.flows
-            .reduce((sum, flow) => sum + parseFloat(flow.wait_time), 0);
-        const totalProcessTime = Object.values(data.processes)
-            .reduce((sum, process) => sum + parseFloat(process.attributes.process_time), 0);
-
-        document.getElementById('totalLeadTime').textContent = `${totalLeadTime.toFixed(1)}d`;
-        document.getElementById('totalWaitTime').textContent = `${totalWaitTime.toFixed(1)}d`;
-        document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)}d`;
-        document.getElementById('criticalPath').textContent = 
-            `${this.criticalPathData.time.toFixed(1)}d (${this.criticalPathData.path.join(' → ')})`;
+        // Update all timing calculations after loading state
+        this.updateTimingCalculations();
     }
 
     loadState() {
@@ -486,24 +479,12 @@ export default class VSMVisualizer {
             
             const finishEdit = () => {
                 const newValue = input.value;
-                if (newValue && /^\d*\.?\d*d$/.test(newValue)) {
+                if (newValue && /^\d*\.?\d+[Mwdhm]$/.test(newValue)) {
                     flow.wait_time = newValue;
                     waitLabel.textContent = `Wait: ${newValue}`;
                     
-                    // Recalculate critical path and update visualization
-                    this.criticalPathData = this.calculateCriticalPath(
-                        this.currentProcesses, 
-                        this.currentFlows
-                    );
-                    this.redrawFlows();
-                    
-                    // Update totals
-                    const totalWaitTime = this.currentFlows
-                        .reduce((sum, f) => sum + parseFloat(f.wait_time), 0);
-                    document.getElementById('totalWaitTime').textContent = 
-                        `${totalWaitTime.toFixed(1)}d`;
-                    document.getElementById('criticalPath').textContent = 
-                        `${this.criticalPathData.time.toFixed(1)}d (${this.criticalPathData.path.join(' → ')})`;
+                    // Update all timing calculations
+                    this.updateTimingCalculations();
                 }
                 document.body.removeChild(input);
             };
@@ -520,5 +501,182 @@ export default class VSMVisualizer {
         };
         
         waitLabel.addEventListener('click', startEdit);
+    }
+
+    // Rename the makeCTEditable method to makePTEditable and update its contents:
+    makePTEditable(ptText, processId) {  // Renamed from makeCTEditable
+        ptText.style.cursor = 'pointer';
+        let input = null;
+        
+        const startEdit = (evt) => {
+            evt.stopPropagation();
+            if (input) return;
+            
+            input = document.createElement('input');
+            input.type = 'text';
+            input.value = this.currentProcesses[processId].attributes.cycle_time || '';
+            input.style.position = 'absolute';
+            input.style.left = `${evt.clientX - 40}px`;
+            input.style.top = `${evt.clientY - 15}px`;
+            input.style.width = '80px';
+            input.style.height = '25px';
+            input.style.fontSize = '12px';
+            input.style.textAlign = 'center';
+            input.style.border = '1px solid #2c3e50';
+            input.style.borderRadius = '4px';
+            
+            const finishEdit = () => {
+                if (!input) return;
+                
+                const newValue = input.value;
+                if (newValue && /^\d*\.?\d+[Mwdhm]$/.test(newValue)) {
+                    this.currentProcesses[processId].attributes.cycle_time = newValue;
+                    ptText.textContent = `PT: ${newValue}`;  // Changed from CT to PT
+                    
+                    this.updateDSLWithProcessAttribute(processId, 'cycle_time', newValue);
+                    this.updateTimingCalculations();
+                }
+                
+                if (input && input.parentNode) {
+                    input.parentNode.removeChild(input);
+                }
+                input = null;
+            };
+            
+            const handleKeyDown = (e) => {
+                if (e.key === 'Enter') {
+                    finishEdit();
+                    e.preventDefault();
+                }
+                if (e.key === 'Escape') {
+                    if (input && input.parentNode) {
+                        input.parentNode.removeChild(input);
+                    }
+                    input = null;
+                    e.preventDefault();
+                }
+            };
+            
+            input.addEventListener('blur', () => {
+                // Use setTimeout to handle blur after potential click events
+                setTimeout(finishEdit, 100);
+            });
+            input.addEventListener('keydown', handleKeyDown);
+            
+            document.body.appendChild(input);
+            input.focus();
+            input.select();
+        };
+        
+        ptText.addEventListener('click', startEdit);
+    }
+
+    // Add this new method to update process attributes in DSL
+    updateDSLWithProcessAttribute(processId, attributeName, value) {
+        const editor = document.getElementById('dslEditor');
+        const dslText = editor.value;
+        const lines = dslText.split('\n');
+        
+        let inTargetProcess = false;
+        let processStart = -1;
+        let processEnd = -1;
+        let attributeLine = -1;
+        
+        // Find the target process block and attribute
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (line === `process ${processId} {`) {
+                inTargetProcess = true;
+                processStart = i;
+                continue;
+            }
+            if (inTargetProcess) {
+                if (line === '}') {
+                    processEnd = i;
+                    break;
+                }
+                if (line.startsWith(attributeName + ':')) {
+                    attributeLine = i;
+                }
+            }
+        }
+        
+        // Update the attribute value
+        if (attributeLine !== -1) {
+            lines[attributeLine] = `  ${attributeName}: ${value}`;
+        } else if (processStart !== -1 && processEnd !== -1) {
+            // Add new attribute if it doesn't exist
+            lines.splice(processEnd, 0, `  ${attributeName}: ${value}`);
+        }
+        
+        editor.value = lines.join('\n');
+   }
+
+    // Add this new time conversion utility method to the VSMVisualizer class
+
+    convertTimeToStandardUnit(timeStr) {
+        if (!timeStr) return 0;
+        const match = timeStr.match(/^(\d*\.?\d+)([Mwdhms])$/);
+        if (!match) return 0;
+        
+        const value = parseFloat(match[1]);
+        const unit = match[2];
+        
+        // Convert everything to days for internal calculations
+        switch (unit) {
+            case 'M': return value * 30;      // Months to days
+            case 'w': return value * 7;       // Weeks to days
+            case 'd': return value;           // Days (base unit)
+            case 'h': return value / 24;      // Hours to days
+            case 'm': return value / 1440;    // Minutes to days
+            case 's': return value / 86400;   // Seconds to days
+            default: return 0;
+        }
+   }
+
+    // Add this new method to handle all time-based updates
+    updateTimingCalculations() {
+        // Recalculate critical path
+        this.criticalPathData = this.calculateCriticalPath(
+            this.currentProcesses, 
+            this.currentFlows
+        );
+        
+        // Update totals using converted values
+        const totalLeadTime = Object.values(this.currentProcesses)
+            .reduce((sum, process) => sum + this.convertTimeToStandardUnit(process.attributes.lead_time), 0);
+
+        const totalWaitTime = this.currentFlows
+            .reduce((sum, flow) => sum + this.convertTimeToStandardUnit(flow.wait_time), 0);
+
+        // Calculate process time only for processes on the critical path
+        const totalProcessTime = this.criticalPathData.path
+            .reduce((sum, processId) => {
+                const process = this.currentProcesses[processId];
+                return sum + this.convertTimeToStandardUnit(process.attributes.cycle_time);
+            }, 0);
+
+        // Update the UI
+        document.getElementById('totalLeadTime').textContent = `${totalLeadTime.toFixed(1)}d`;
+        document.getElementById('totalWaitTime').textContent = `${totalWaitTime.toFixed(1)}d`;
+        document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)}d`;
+        document.getElementById('criticalPath').textContent = 
+            `${this.criticalPathData.time.toFixed(1)}d (${this.criticalPathData.path.join(' → ')})`;
+        
+        // Redraw flows to update critical path highlighting
+        this.redrawFlows();
+    }
+
+    // Add this new method to parse DSL changes
+    parseDSLChanges() {
+        const dslText = document.getElementById('dslEditor').value;
+        const parsedData = window.parser.parse(dslText);
+        
+        // Update current data
+        this.currentProcesses = parsedData.processes;
+        this.currentFlows = parsedData.flows;
+        
+        // Update all timing calculations
+        this.updateTimingCalculations();
     }
 }
