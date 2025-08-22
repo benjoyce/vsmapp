@@ -17,7 +17,10 @@
             <div class="editor-panel">
                 <div class="panel-header">
                     <h3 class="panel-title">DSL Editor</h3>
-                    <button class="parse-button" onclick="window.parseAndVisualize()">Generate VSM</button>
+                    <div class="button-group">
+                        <button class="editor-button" onclick="window.saveVSM()">Save VSM</button>
+                        <button class="parse-button" onclick="window.parseAndVisualize()">Generate VSM</button>
+                    </div>
                 </div>
                 <textarea id="dslEditor" class="editor" placeholder="Enter your VSM DSL here...">process stamping {
   stage_id: 1
@@ -119,22 +122,54 @@ flow from photography to assembly {
         import VSMVisualizer from './js/VSMVisualizer.js';
 
         const parser = new VSMParser();
-        const visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
+        let visualizer;
+
+        async function initializeVSM() {
+            // Ensure DOM is fully loaded
+            await new Promise(resolve => {
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', resolve);
+                } else {
+                    resolve();
+                }
+            });
+
+            visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
+            parseAndVisualize();
+        }
+
+        function saveVSM() {
+            if (visualizer) {
+                visualizer.saveState();
+                // Show feedback
+                const feedback = document.createElement('div');
+                feedback.textContent = 'VSM saved successfully';
+                feedback.style.position = 'fixed';
+                feedback.style.top = '20px';
+                feedback.style.right = '20px';
+                feedback.style.background = '#2ecc71';
+                feedback.style.color = 'white';
+                feedback.style.padding = '10px 20px';
+                feedback.style.borderRadius = '4px';
+                feedback.style.opacity = '0';
+                feedback.style.transition = 'opacity 0.3s';
+                
+                document.body.appendChild(feedback);
+                setTimeout(() => feedback.style.opacity = '1', 10);
+                setTimeout(() => {
+                    feedback.style.opacity = '0';
+                    setTimeout(() => document.body.removeChild(feedback), 300);
+                }, 2000);
+            }
+        }
 
         function parseAndVisualize() {
             const dslText = document.getElementById('dslEditor').value;
-            
             try {
                 const parsedData = parser.parse(dslText);
                 visualizer.visualize(parsedData);
-                
-                // Remove any existing error messages
-                const existingError = document.querySelector('.error');
-                if (existingError) {
-                    existingError.remove();
-                }
             } catch (error) {
-                // Display error message
+                console.error('Parse error:', error);
                 const errorDiv = document.createElement('div');
                 errorDiv.className = 'error';
                 errorDiv.textContent = `Parse Error: ${error.message}`;
@@ -148,18 +183,12 @@ flow from photography to assembly {
             }
         }
 
-        // Make parseAndVisualize available globally
+        // Make functions available globally
+        window.saveVSM = saveVSM;
         window.parseAndVisualize = parseAndVisualize;
 
-        // Parse and visualize on page load
-        window.onload = parseAndVisualize;
-
-        // Auto-parse when typing (with debounce)
-        let parseTimeout;
-        document.getElementById('dslEditor').addEventListener('input', function() {
-            clearTimeout(parseTimeout);
-            parseTimeout = setTimeout(parseAndVisualize, 1000);
-        });
+        // Initialize on page load
+        initializeVSM();
     </script>
 </body>
 </html>

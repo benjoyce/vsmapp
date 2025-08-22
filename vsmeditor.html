@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Value Stream Map Visualizer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+            letter-spacing: 2px;
+        }
+
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.8;
+            font-size: 1.1em;
+        }
+
+        .main-content {
+            display: flex;
+            height: 800px;
+        }
+
+        .editor-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border-right: 2px solid #ecf0f1;
+        }
+
+        .panel-header {
+            background: #f8f9fa;
+            padding: 20px;
+            border-bottom: 1px solid #dee2e6;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-size: 1.2em;
+            font-weight: 600;
+            color: #2c3e50;
+            margin: 0;
+        }
+
+        .parse-button {
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(52, 152, 219, 0.3);
+        }
+
+        .parse-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(52, 152, 219, 0.4);
+        }
+
+        .editor {
+            flex: 1;
+            border: none;
+            padding: 20px;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            resize: none;
+            outline: none;
+            background: #f8f9fa;
+        }
+
+        .visualization-panel {
+            flex: 2;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .canvas-container {
+            flex: 1;
+            padding: 20px;
+            overflow: auto;
+            background: #fafbfc;
+        }
+
+        #vsmCanvas {
+            border: 2px solid #e9ecef;
+            border-radius: 10px;
+            background: white;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+
+        .error {
+            background: #fee;
+            border: 2px solid #f66;
+            color: #c33;
+            padding: 15px;
+            margin: 20px;
+            border-radius: 8px;
+            font-family: monospace;
+        }
+
+        .process-box {
+            fill: #3498db;
+            stroke: #2980b9;
+            stroke-width: 2;
+            filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.1));
+        }
+
+        .process-box.critical {
+            stroke: #e74c3c;
+            stroke-width: 3;
+        }
+
+        .process-text {
+            fill: white;
+            font-family: Arial, sans-serif;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+
+        .process-details {
+            fill: #2c3e50;
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            text-anchor: middle;
+        }
+
+        .flow-line {
+            stroke: #34495e;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+
+        .flow-line.critical {
+            stroke: #e74c3c;
+            stroke-width: 3;
+        }
+
+        .info-flow-line {
+            stroke: #e74c3c;
+            stroke-width: 2;
+            stroke-dasharray: 5,5;
+            fill: none;
+            marker-end: url(#arrowhead-info);
+        }
+
+        .wait-time-label {
+            fill: #e67e22;
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            font-weight: bold;
+            text-anchor: middle;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .process-group {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+
+        .totals-strip {
+            display: flex;
+            justify-content: space-between;
+            background: #f1f1f1;
+            padding: 15px 30px;
+            border-top: 1px solid #dee2e6;
+        }
+
+        .total-item {
+            text-align: center;
+        }
+
+        .total-label {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+
+        .total-value {
+            font-size: 18px;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        .critical-path {
+            font-size: 18px;
+            font-weight: 500;
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Value Stream Map Visualizer</h1>
+            <p>Define your processes and flows using our DSL, then visualize your value stream map</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="editor-panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">DSL Editor</h3>
+                    <button class="parse-button" onclick="parseAndVisualize()">Generate VSM</button>
+                </div>
+                <textarea id="dslEditor" class="editor" placeholder="Enter your VSM DSL here...">process stamping {
+  stage_id: 1
+  name: "Sheet Metal Stamping"
+  owner: "Manufacturing Team A"
+  description: "High-pressure stamping of steel sheets"
+  lead_time: 3.2d
+  cycle_time: 45s
+  process_time: 40s
+  batch_size: 100
+  defect_rate: 2.5
+}
+
+process welding {
+  stage_id: 2
+  name: "Spot Welding Assembly"
+  owner: "Welding Department"
+  description: "Robotic spot welding of stamped components"
+  lead_time: 1.8d
+  cycle_time: 60s
+  process_time: 55s
+  batch_size: 50
+  defect_rate: 1.2
+}
+
+process photography {
+  stage_id: 3
+  name: "Quality Photography"
+  owner: "QC Documentation Team"
+  description: "Digital photography for quality records"
+  lead_time: 1.2d
+  cycle_time: 30s
+  process_time: 25s
+  batch_size: 100
+  defect_rate: 0.5
+}
+
+process assembly {
+  stage_id: 4
+  name: "Final Door Assembly"
+  owner: "Assembly Line Team"
+  description: "Installation of hinges, handles, weather stripping"
+  lead_time: 2.5d
+  cycle_time: 90s
+  process_time: 85s
+  batch_size: 25
+  defect_rate: 3.1
+}
+
+flow from stamping to welding {
+  wait_time: 0.5d
+}
+
+flow from stamping to photography {
+  wait_time: 0.3d
+}
+
+flow from welding to assembly {
+  wait_time: 1.8d
+}
+
+flow from photography to assembly {
+  wait_time: 2.1d
+}</textarea>
+            </div>
+            
+            <div class="visualization-panel">
+                <div class="panel-header">
+                    <h3 class="panel-title">Value Stream Map</h3>
+                </div>
+                <div class="canvas-container">
+                    <svg id="vsmCanvas" width="900" height="700"></svg>
+                </div>
+            </div>
+        </div>
+
+        <div class="totals-strip">
+            <div class="total-item">
+                <div class="total-label">Total Lead Time</div>
+                <div class="total-value" id="totalLeadTime">-</div>
+            </div>
+            <div class="total-item">
+                <div class="total-label">Total Wait Time</div>
+                <div class="total-value" id="totalWaitTime">-</div>
+            </div>
+            <div class="total-item">
+                <div class="total-label">Total Process Time</div>
+                <div class="total-value" id="totalProcessTime">-</div>
+            </div>
+            <div class="total-item">
+                <div class="total-label">Critical Path</div>
+                <div class="critical-path" id="criticalPath">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class VSMParser {
+            constructor() {
+                this.processes = {};
+                this.flows = [];
+                this.infoFlows = [];
+            }
+
+            parse(dslText) {
+                this.processes = {};
+                this.flows = [];
+                this.infoFlows = [];
+
+                const lines = dslText.split('\n').map(line => line.trim()).filter(line => line);
+                let currentBlock = null;
+                let currentProcess = null;
+
+                for (let line of lines) {
+                    if (line.startsWith('process ')) {
+                        const processName = line.match(/process (\w+)/)[1];
+                        currentProcess = {
+                            id: processName,
+                            attributes: {}
+                        };
+                        currentBlock = 'process';
+                    } else if (line.startsWith('flow from ')) {
+                        const match = line.match(/flow from (\w+) to (\w+)/);
+                        if (match) {
+                            currentBlock = 'flow';
+                            this.currentFlow = {
+                                from: match[1],
+                                to: match[2],
+                                type: 'material'
+                            };
+                        }
+                    } else if (line.startsWith('information_flow from ')) {
+                        const match = line.match(/information_flow from (\w+) to (\w+)/);
+                        if (match) {
+                            currentBlock = 'info_flow';
+                            this.currentInfoFlow = {
+                                from: match[1],
+                                to: match[2],
+                                type: 'information'
+                            };
+                        }
+                    } else if (line === '}') {
+                        if (currentBlock === 'process' && currentProcess) {
+                            this.processes[currentProcess.id] = currentProcess;
+                        } else if (currentBlock === 'flow' && this.currentFlow) {
+                            this.flows.push(this.currentFlow);
+                        } else if (currentBlock === 'info_flow' && this.currentInfoFlow) {
+                            this.infoFlows.push(this.currentInfoFlow);
+                        }
+                        currentBlock = null;
+                        currentProcess = null;
+                    } else if (line.includes(':') && currentBlock) {
+                        const [key, value] = line.split(':').map(s => s.trim());
+                        const cleanValue = value.replace(/[",]/g, '');
+
+                        if (currentBlock === 'process') {
+                            currentProcess.attributes[key] = cleanValue;
+                        } else if (currentBlock === 'flow') {
+                            this.currentFlow[key] = cleanValue;
+                        } else if (currentBlock === 'info_flow') {
+                            this.currentInfoFlow[key] = cleanValue;
+                        }
+                    }
+                }
+
+                return {
+                    processes: this.processes,
+                    flows: this.flows,
+                    infoFlows: this.infoFlows
+                };
+            }
+        }
+
+        class VSMVisualizer {
+            constructor(svgElement) {
+                this.svg = svgElement;
+                this.width = 900;
+                this.height = 700;
+                this.processWidth = 160;
+                this.processHeight = 120;
+                this.setupSVG();
+            }
+
+            setupSVG() {
+                this.svg.innerHTML = '';
+                this.svg.setAttribute('width', this.width);
+                this.svg.setAttribute('height', this.height);
+
+                // Add arrow markers
+                const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                
+                const arrowhead = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                arrowhead.setAttribute('id', 'arrowhead');
+                arrowhead.setAttribute('markerWidth', '10');
+                arrowhead.setAttribute('markerHeight', '7');
+                arrowhead.setAttribute('refX', '9');
+                arrowhead.setAttribute('refY', '3.5');
+                arrowhead.setAttribute('orient', 'auto');
+                
+                const arrowPath = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                arrowPath.setAttribute('points', '0 0, 10 3.5, 0 7');
+                arrowPath.setAttribute('fill', '#34495e');
+                arrowhead.appendChild(arrowPath);
+                
+                const arrowheadInfo = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+                arrowheadInfo.setAttribute('id', 'arrowhead-info');
+                arrowheadInfo.setAttribute('markerWidth', '10');
+                arrowheadInfo.setAttribute('markerHeight', '7');
+                arrowheadInfo.setAttribute('refX', '9');
+                arrowheadInfo.setAttribute('refY', '3.5');
+                arrowheadInfo.setAttribute('orient', 'auto');
+                
+                const arrowPathInfo = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+                arrowPathInfo.setAttribute('points', '0 0, 10 3.5, 0 7');
+                arrowPathInfo.setAttribute('fill', '#e74c3c');
+                arrowheadInfo.appendChild(arrowPathInfo);
+
+                defs.appendChild(arrowhead);
+                defs.appendChild(arrowheadInfo);
+                this.svg.appendChild(defs);
+            }
+
+            visualize(data) {
+                this.setupSVG();
+                
+                // Store flow data for redrawing
+                this.currentFlows = data.flows;
+                this.currentInfoFlows = data.infoFlows;
+                
+                // Calculate critical path
+                this.criticalPathData = this.calculateCriticalPath(data.processes, data.flows);
+                
+                // Calculate positions for processes
+                this.positions = this.calculatePositions(data.processes, data.flows);
+                
+                // Draw information flows first
+                this.drawInformationFlows(data.infoFlows, this.positions);
+                
+                // Draw processes
+                this.drawProcesses(data.processes, this.positions);
+                
+                // Draw material flows
+                this.drawFlows(data.flows, this.positions);
+                
+                // Update totals
+                this.updateTotals(data.processes, data.flows);
+            }
+
+            calculatePositions(processes, flows) {
+                const positions = {};
+                const processIds = Object.keys(processes);
+                
+                // Create a simple layout algorithm
+                // First, identify the main flow path
+                const flowGraph = {};
+                flows.forEach(flow => {
+                    if (!flowGraph[flow.from]) flowGraph[flow.from] = [];
+                    flowGraph[flow.from].push(flow.to);
+                });
+
+                // Find starting processes (no incoming flows)
+                const incomingCounts = {};
+                processIds.forEach(id => incomingCounts[id] = 0);
+                flows.forEach(flow => incomingCounts[flow.to]++);
+                
+                const startProcesses = processIds.filter(id => incomingCounts[id] === 0);
+                
+                // Layout processes in layers
+                const layers = [];
+                const visited = new Set();
+                
+                const layerProcesses = (processId, layer = 0) => {
+                    if (visited.has(processId)) return;
+                    visited.add(processId);
+                    
+                    if (!layers[layer]) layers[layer] = [];
+                    layers[layer].push(processId);
+                    
+                    if (flowGraph[processId]) {
+                        flowGraph[processId].forEach(nextProcess => {
+                            layerProcesses(nextProcess, layer + 1);
+                        });
+                    }
+                };
+
+                startProcesses.forEach(startId => layerProcesses(startId));
+                
+                // Add any remaining processes
+                processIds.forEach(id => {
+                    if (!visited.has(id)) {
+                        layers[0] = layers[0] || [];
+                        layers[0].push(id);
+                    }
+                });
+
+                // Calculate actual positions
+                const layerSpacing = 220;
+                const processSpacing = 140;
+                const startX = 100;
+                const startY = 150;
+
+                layers.forEach((layer, layerIndex) => {
+                    const layerHeight = layer.length * processSpacing;
+                    const layerStartY = (this.height - layerHeight) / 2;
+                    
+                    layer.forEach((processId, processIndex) => {
+                        positions[processId] = {
+                            x: startX + layerIndex * layerSpacing,
+                            y: layerStartY + processIndex * processSpacing
+                        };
+                    });
+                });
+
+                return positions;
+            }
+
+            drawProcesses(processes, positions) {
+                Object.keys(processes).forEach((processId, index) => {
+                    const process = processes[processId];
+                    const pos = positions[processId];
+                    
+                    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                    group.setAttribute('class', 'process-group');
+                    group.style.animationDelay = `${index * 0.1}s`;
+
+                    // Process box
+                    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    rect.setAttribute('x', pos.x);
+                    rect.setAttribute('y', pos.y);
+                    rect.setAttribute('width', this.processWidth);
+                    rect.setAttribute('height', this.processHeight);
+                    rect.setAttribute('class', `process-box${
+    this.criticalPathData.path.includes(processId) ? ' critical' : ''
+}`);
+                    rect.setAttribute('rx', '8');
+                    group.appendChild(rect);
+
+                    // Process name
+                    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    title.setAttribute('x', pos.x + this.processWidth / 2);
+                    title.setAttribute('y', pos.y + 20);
+                    title.setAttribute('class', 'process-text');
+                    title.setAttribute('font-size', '14');
+                    title.textContent = process.attributes.name || processId;
+                    group.appendChild(title);
+
+                    // Process attributes
+                    const attributes = [
+                        `CT: ${process.attributes.cycle_time || 'N/A'}`,
+                        `LT: ${process.attributes.lead_time || 'N/A'}`,
+                        `Batch: ${process.attributes.batch_size || 'N/A'}`,
+                        `Defect: ${process.attributes.defect_rate || 'N/A'}%`
+                    ];
+
+                    attributes.forEach((detail, i) => {
+                        const detailText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        detailText.setAttribute('x', pos.x + this.processWidth / 2);
+                        detailText.setAttribute('y', pos.y + 45 + i * 15);
+                        detailText.setAttribute('class', 'process-details');
+                        detailText.textContent = detail;
+                        group.appendChild(detailText);
+                    });
+
+                    // Owner text at bottom
+                    const owner = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    owner.setAttribute('x', pos.x + this.processWidth / 2);
+                    owner.setAttribute('y', pos.y + 110);
+                    owner.setAttribute('class', 'process-details');
+                    owner.setAttribute('font-style', 'italic');
+                    owner.textContent = process.attributes.owner || '';
+                    group.appendChild(owner);
+
+                    // Add the group to the SVG
+                    this.svg.appendChild(group);
+
+                    // Make process boxes draggable
+                    this.makeDraggable(group, processId);
+                });
+            }
+
+            makeDraggable(group, processId) {
+                let selectedElement = null;
+                let offset = { x: 0, y: 0 };
+                
+                group.style.cursor = 'move';
+                
+                const startDrag = (evt) => {
+                    selectedElement = group;
+                    const rect = group.querySelector('rect');
+                    
+                    // Get correct initial mouse position relative to SVG
+                    const svg = this.svg;
+                    const pt = svg.createSVGPoint();
+                    pt.x = evt.clientX;
+                    pt.y = evt.clientY;
+                    const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+                    
+                    // Calculate offset using SVG coordinates
+                    offset.x = svgP.x - parseFloat(rect.getAttribute('x'));
+                    offset.y = svgP.y - parseFloat(rect.getAttribute('y'));
+                    
+                    window.addEventListener('mousemove', drag);
+                    window.addEventListener('mouseup', endDrag);
+                };
+                
+                const drag = (evt) => {
+                    if (selectedElement) {
+                        evt.preventDefault();
+                        
+                        // Get correct mouse position relative to SVG
+                        const svg = this.svg;
+                        const pt = svg.createSVGPoint();
+                        pt.x = evt.clientX;
+                        pt.y = evt.clientY;
+                        const svgP = pt.matrixTransform(svg.getScreenCTM().inverse());
+                        
+                        // Calculate new position
+                        const newX = svgP.x - offset.x;
+                        const newY = svgP.y - offset.y;
+                        
+                        // Get the current position of the rectangle
+                        const rect = selectedElement.querySelector('rect');
+                        const oldX = parseFloat(rect.getAttribute('x'));
+                        const oldY = parseFloat(rect.getAttribute('y'));
+                        
+                        // Calculate the movement delta
+                        const deltaX = newX - oldX;
+                        const deltaY = newY - oldY;
+                        
+                        // Move the rectangle
+                        rect.setAttribute('x', newX);
+                        rect.setAttribute('y', newY);
+                        
+                        // Move all text elements by the same delta
+                        selectedElement.querySelectorAll('text').forEach(text => {
+                            const currentX = parseFloat(text.getAttribute('x'));
+                            const currentY = parseFloat(text.getAttribute('y'));
+                            text.setAttribute('x', currentX + deltaX);
+                            text.setAttribute('y', currentY + deltaY);
+                        });
+                        
+                        // Update position in our positions object
+                        this.positions[processId] = { x: newX, y: newY };
+                        
+                        // Redraw all flows
+                        this.redrawFlows();
+                    }
+                };
+                
+                const endDrag = () => {
+                    selectedElement = null;
+                    window.removeEventListener('mousemove', drag);
+                    window.removeEventListener('mouseup', endDrag);
+                };
+                
+                group.addEventListener('mousedown', startDrag);
+            }
+
+            redrawFlows() {
+                // Remove existing flows
+                this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label').forEach(el => el.remove());
+                
+                // Redraw flows
+                this.drawFlows(this.currentFlows, this.positions);
+                this.drawInformationFlows(this.currentInfoFlows, this.positions);
+            }
+
+            drawFlows(flows, positions) {
+                flows.forEach(flow => {
+                    const fromPos = positions[flow.from];
+                    const toPos = positions[flow.to];
+                    
+                    if (!fromPos || !toPos) return;
+
+                    const fromX = fromPos.x + this.processWidth;
+                    const fromY = fromPos.y + this.processHeight / 2;
+                    const toX = toPos.x;
+                    const toY = toPos.y + this.processHeight / 2;
+
+                    // Create curved line for better visual flow
+                    const midX = (fromX + toX) / 2;
+                    const path = `M ${fromX} ${fromY} Q ${midX} ${fromY} ${midX} ${(fromY + toY) / 2} Q ${midX} ${toY} ${toX} ${toY}`;
+
+                    const flowLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    flowLine.setAttribute('d', path);
+                    flowLine.setAttribute('class', `flow-line${
+    this.criticalPathData.flows.has(`${flow.from}-${flow.to}`) ? ' critical' : ''
+}`);
+
+                    this.svg.appendChild(flowLine);
+
+                    // Add wait time label
+                    if (flow.wait_time) {
+                        const waitLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                        waitLabel.setAttribute('x', midX);
+                        waitLabel.setAttribute('y', (fromY + toY) / 2 - 10);
+                        waitLabel.setAttribute('class', 'wait-time-label');
+                        waitLabel.textContent = `Wait: ${flow.wait_time}`;
+                        this.svg.appendChild(waitLabel);
+                    }
+                });
+            }
+
+            drawInformationFlows(infoFlows, positions) {
+                infoFlows.forEach(flow => {
+                    // For information flows, create simple external boxes
+                    const toPos = positions[flow.to];
+                    if (!toPos) return;
+
+                    // Create external information source
+                    const sourceX = toPos.x - 100;
+                    const sourceY = toPos.y - 60;
+
+                    const sourceRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                    sourceRect.setAttribute('x', sourceX);
+                    sourceRect.setAttribute('y', sourceY);
+                    sourceRect.setAttribute('width', 80);
+                    sourceRect.setAttribute('height', 30);
+                    sourceRect.setAttribute('fill', '#e74c3c');
+                    sourceRect.setAttribute('rx', '4');
+
+                    const sourceText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    sourceText.setAttribute('x', sourceX + 40);
+                    sourceText.setAttribute('y', sourceY + 20);
+                    sourceText.setAttribute('fill', 'white');
+                    sourceText.setAttribute('text-anchor', 'middle');
+                    sourceText.setAttribute('font-size', '10');
+                    sourceText.textContent = flow.from.replace('_', ' ');
+
+                    // Information flow line
+                    const infoLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    infoLine.setAttribute('x1', sourceX + 80);
+                    infoLine.setAttribute('y1', sourceY + 15);
+                    infoLine.setAttribute('x2', toPos.x);
+                    infoLine.setAttribute('y2', toPos.y + 10);
+                    infoLine.setAttribute('class', 'info-flow-line');
+
+                    this.svg.appendChild(sourceRect);
+                    this.svg.appendChild(sourceText);
+                    this.svg.appendChild(infoLine);
+                });
+            }
+
+            updateTotals(processes, flows) {
+                const totalLeadTime = Object.values(processes).reduce((sum, process) => 
+                    sum + (parseFloat(process.attributes.lead_time) || 0), 0);
+                const totalWaitTime = flows.reduce((sum, flow) => 
+                    sum + (parseFloat(flow.wait_time) || 0), 0);
+                const totalProcessTime = Object.values(processes).reduce((sum, process) => 
+                    sum + (parseFloat(process.attributes.process_time) || 0), 0);
+
+                document.getElementById('totalLeadTime').textContent = `${totalLeadTime.toFixed(1)} d`;
+                document.getElementById('totalWaitTime').textContent = `${totalWaitTime.toFixed(1)} d`;
+                document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)} d`;
+                document.getElementById('criticalPath').textContent = 
+                    `${this.criticalPathData.time.toFixed(1)} d (${this.criticalPathData.path.join(' → ')})`;
+            }
+
+            calculateCriticalPath(processes, flows) {
+                // Build graph
+                const graph = {};
+                Object.keys(processes).forEach(id => {
+                    graph[id] = [];
+                });
+                
+                flows.forEach(flow => {
+                    const waitTime = parseFloat(flow.wait_time) || 0;
+                    graph[flow.from].push({
+                        to: flow.to,
+                        time: waitTime + (parseFloat(processes[flow.to].attributes.lead_time) || 0)
+                    });
+                });
+
+                // Find start nodes (no incoming flows)
+                const startNodes = Object.keys(processes).filter(id => 
+                    !flows.some(f => f.to === id));
+
+                // Find all paths and their total times
+                const findPaths = (start, path = [], time = 0) => {
+                    const current = path.length === 0 ? start : path[path.length - 1];
+                    const newPath = [...path, current];
+                    
+                    if (graph[current].length === 0) {
+                        return [{ path: newPath, time }];
+                    }
+
+                    return graph[current].flatMap(edge => 
+                        findPaths(edge.to, newPath, time + edge.time)
+                    );
+                };
+
+                // Calculate all paths and find the critical one
+                const allPaths = startNodes.flatMap(start => {
+                    const initialTime = parseFloat(processes[start].attributes.lead_time) || 0;
+                    return findPaths(start, [], initialTime);
+                });
+
+                const criticalPath = allPaths.reduce((max, current) => 
+                    current.time > max.time ? current : max
+                , { path: [], time: 0 });
+
+                // Create a set of critical flow pairs for easy lookup
+                const criticalFlowPairs = new Set();
+                for (let i = 0; i < criticalPath.path.length - 1; i++) {
+                    criticalFlowPairs.add(`${criticalPath.path[i]}-${criticalPath.path[i + 1]}`);
+                }
+
+                return {
+                    path: criticalPath.path,
+                    time: criticalPath.time,
+                    flows: criticalFlowPairs
+                };
+            }
+        }
+
+        let parser = new VSMParser();
+        let visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
+
+        function parseAndVisualize() {
+            const dslText = document.getElementById('dslEditor').value;
+            
+            try {
+                const parsedData = parser.parse(dslText);
+                visualizer.visualize(parsedData);
+                
+                // Remove any existing error messages
+                const existingError = document.querySelector('.error');
+                if (existingError) {
+                    existingError.remove();
+                }
+            } catch (error) {
+                // Display error message
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error';
+                errorDiv.textContent = `Parse Error: ${error.message}`;
+                
+                const canvasContainer = document.querySelector('.canvas-container');
+                const existingError = document.querySelector('.error');
+                if (existingError) {
+                    existingError.remove();
+                }
+                canvasContainer.insertBefore(errorDiv, document.getElementById('vsmCanvas'));
+            }
+        }
+
+        // Parse and visualize on page load
+        window.onload = function() {
+            parseAndVisualize();
+        };
+
+        // Auto-parse when typing (with debounce)
+        let parseTimeout;
+        document.getElementById('dslEditor').addEventListener('input', function() {
+            clearTimeout(parseTimeout);
+            parseTimeout = setTimeout(parseAndVisualize, 1000);
+        });
+    </script>
+</body>
+</html>
