@@ -147,6 +147,9 @@ export default class VSMVisualizer {
             owner.textContent = process.attributes.owner || '';
             group.appendChild(owner);
 
+            // Add plus symbol for adding new processes
+            this.addPlusSymbol(group, processId, pos);
+            
             this.svg.appendChild(group);
         });
     }
@@ -679,4 +682,141 @@ export default class VSMVisualizer {
         // Update all timing calculations
         this.updateTimingCalculations();
     }
+
+    // Add these new methods to the VSMVisualizer class
+
+    addPlusSymbol(group, processId, pos) {
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', pos.x + this.processWidth);
+        circle.setAttribute('cy', pos.y + this.processHeight / 2);
+        circle.setAttribute('r', '12');
+        circle.setAttribute('fill', 'white');
+        circle.setAttribute('stroke', '#2c3e50');
+        circle.setAttribute('stroke-width', '2');
+        circle.setAttribute('class', 'add-process-circle');
+        circle.style.opacity = '0';
+        circle.style.cursor = 'pointer';
+        circle.style.transition = 'opacity 0.3s';
+
+        const plus = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        plus.setAttribute('x', pos.x + this.processWidth);
+        plus.setAttribute('y', pos.y + this.processHeight / 2 + 1);
+        plus.setAttribute('text-anchor', 'middle');
+        plus.setAttribute('dominant-baseline', 'middle');
+        plus.setAttribute('font-size', '20');
+        plus.setAttribute('font-weight', 'bold');
+        plus.setAttribute('class', 'add-process-plus');
+        plus.style.opacity = '0';
+        plus.style.cursor = 'pointer';
+        plus.style.transition = 'opacity 0.3s';
+        plus.textContent = '+';
+
+        group.addEventListener('mouseenter', () => {
+            circle.style.opacity = '1';
+            plus.style.opacity = '1';
+        });
+
+        group.addEventListener('mouseleave', () => {
+            circle.style.opacity = '0';
+            plus.style.opacity = '0';
+        });
+
+        const addNewProcess = () => {
+            const newId = this.generateNewProcessId(processId);
+            const newProcess = this.createNewProcess(processId, newId);
+            
+            // Add the new process to the current processes
+            this.currentProcesses[newId] = newProcess;
+            
+            // Add a flow from the current process to the new one
+            const newFlow = {
+                from: processId,
+                to: newId,
+                wait_time: '0.5d'
+            };
+            this.currentFlows.push(newFlow);
+            
+            // Calculate position for the new process
+            const newX = pos.x + this.processWidth + 100;
+            const newY = pos.y;
+            this.positions[newId] = { x: newX, y: newY };
+            
+            // Update the DSL
+            this.updateDSLWithNewProcess(newProcess, newId, newFlow);
+            
+            // Redraw the visualization
+            this.visualize({
+                processes: this.currentProcesses,
+                flows: this.currentFlows,
+                infoFlows: this.currentInfoFlows,
+                positions: this.positions
+            });
+        };
+
+        circle.addEventListener('click', addNewProcess);
+        plus.addEventListener('click', addNewProcess);
+
+        group.appendChild(circle);
+        group.appendChild(plus);
+    }
+
+    generateNewProcessId(baseId) {
+        let counter = 1;
+        let newId = `${baseId}_${counter}`;
+        while (this.currentProcesses[newId]) {
+            counter++;
+            newId = `${baseId}_${counter}`;
+        }
+        return newId;
+    }
+
+    createNewProcess(baseId, newId) {
+        const baseProcess = this.currentProcesses[baseId];
+        return {
+            attributes: {
+                stage_id: parseInt(baseProcess.attributes.stage_id || 1) + 1,
+                name: `New ${baseProcess.attributes.name || baseId}`,
+                owner: baseProcess.attributes.owner || '',
+                description: `New process derived from ${baseId}`,
+                lead_time: '0d',
+                cycle_time: '0s',
+                process_time: '0s',
+                batch_size: '0',
+                defect_rate: '0'
+            }
+        };
+    }
+
+    updateDSLWithNewProcess(process, processId, flow) {
+        const editor = document.getElementById('dslEditor');
+        let dslText = editor.value;
+        
+        // Add new process
+        const processBlock = `\nprocess ${processId} {
+  stage_id: ${process.attributes.stage_id}
+  name: "${process.attributes.name}"
+  owner: "${process.attributes.owner}"
+  description: "${process.attributes.description}"
+  lead_time: ${process.attributes.lead_time}
+  cycle_time: ${process.attributes.cycle_time}
+  process_time: ${process.attributes.process_time}
+  batch_size: ${process.attributes.batch_size}
+  defect_rate: ${process.attributes.defect_rate}
+}\n`;
+
+    // Add new flow
+    const flowBlock = `\nflow from ${flow.from} to ${flow.to} {
+  wait_time: ${flow.wait_time}
+}\n`;
+
+    // Insert before positions block if it exists
+    const positionsIndex = dslText.indexOf('positions {');
+    if (positionsIndex !== -1) {
+        dslText = dslText.slice(0, positionsIndex) + processBlock + flowBlock + dslText.slice(positionsIndex);
+    } else {
+        dslText += processBlock + flowBlock;
+    }
+
+    editor.value = dslText;
+}
 }
