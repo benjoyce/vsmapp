@@ -117,10 +117,10 @@ export default class VSMVisualizer {
 
             // Process attributes
             const attributes = [
-                { key: 'PT', value: process.attributes.cycle_time || 'N/A' },  // Changed from CT to PT
-                { key: 'LT', value: process.attributes.lead_time || 'N/A' },
-                { key: 'Batch', value: process.attributes.batch_size || 'N/A' },
-                { key: 'Defect', value: `${process.attributes.defect_rate || 'N/A'}%` }
+                { key: 'PT', value: process.attributes.cycle_time || 'N/A', attr: 'cycle_time' },
+                { key: 'LT', value: process.attributes.lead_time || 'N/A', attr: 'lead_time' },
+                { key: 'Batch', value: process.attributes.batch_size || 'N/A', attr: 'batch_size' },
+                { key: 'Defect', value: `${process.attributes.defect_rate || 'N/A'}%`, attr: 'defect_rate' }
             ];
 
             attributes.forEach((attr, i) => {
@@ -130,9 +130,11 @@ export default class VSMVisualizer {
                 detailText.setAttribute('class', 'process-details');
                 detailText.textContent = `${attr.key}: ${attr.value}`;
                 
-                // Make PT editable (changed from CT)
-                if (attr.key === 'PT') {
-                    this.makePTEditable(detailText, processId);  // Changed from makeCTEditable to makePTEditable
+                // Make time-based attributes editable
+                if (attr.attr.includes('time')) {
+                    this.makeAttributeEditable(detailText, processId, attr.attr, attr.key);
+                    detailText.style.cursor = 'pointer';
+                    detailText.setAttribute('class', 'process-details editable');
                 }
                 
                 group.appendChild(detailText);
@@ -818,5 +820,154 @@ export default class VSMVisualizer {
     }
 
     editor.value = dslText;
+}
+
+showCustomAlert(message, onClose) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'custom-alert';
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'custom-alert-message';
+    messageDiv.textContent = message;
+    
+    const button = document.createElement('button');
+    button.className = 'custom-alert-button';
+    button.textContent = 'OK';
+    button.onclick = () => {
+        document.body.removeChild(alertDiv);
+        if (onClose) onClose();
+    };
+    
+    alertDiv.appendChild(messageDiv);
+    alertDiv.appendChild(button);
+    document.body.appendChild(alertDiv);
+    
+    // Focus the button
+    button.focus();
+}
+
+makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
+    textElement.style.cursor = 'pointer';
+    let input = null;
+    let isEditing = false;
+    let isShowingAlert = false;
+    
+    const startEdit = (evt) => {
+        evt.stopPropagation();
+        if (isEditing) return;
+        isEditing = true;
+        
+        input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.currentProcesses[processId].attributes[attributeName] || '';
+        input.style.position = 'absolute';
+        input.style.left = `${evt.clientX - 40}px`;
+        input.style.top = `${evt.clientY - 15}px`;
+        input.style.width = '80px';
+        input.style.height = '25px';
+        input.style.fontSize = '12px';
+        input.style.textAlign = 'center';
+        input.style.border = '1px solid #2c3e50';
+        input.style.borderRadius = '4px';
+
+        const validateValue = (value) => {
+            if (!value) return false;
+            
+            const isValid = attributeName.includes('time') ? 
+                /^\d*\.?\d+[Mwdhms]$/.test(value) :
+                /^\d*\.?\d+$/.test(value);
+            
+            if (!isValid) return false;
+
+            if (attributeName === 'cycle_time') {
+                const ptTime = this.convertTimeToStandardUnit(value);
+                const ltTime = this.convertTimeToStandardUnit(
+                    this.currentProcesses[processId].attributes.lead_time
+                );
+                
+                if (ptTime > ltTime && !isShowingAlert) {
+                    isShowingAlert = true;
+                    this.showCustomAlert('Process Time cannot be greater than Lead Time', () => {
+                        isShowingAlert = false;
+                        if (input) {
+                            input.focus();
+                            input.select();
+                        }
+                    });
+                    return false;
+                }
+            }
+            
+            return true;
+        };
+
+        const saveValue = () => {
+            if (isShowingAlert) return false;
+            const newValue = input.value;
+            
+            if (validateValue(newValue)) {
+                // Update the process attribute
+                this.currentProcesses[processId].attributes[attributeName] = newValue;
+                textElement.textContent = `${displayPrefix}: ${newValue}`;
+                
+                // Update DSL and recalculate everything
+                this.updateDSLWithProcessAttribute(processId, attributeName, newValue);
+                this.updateTimingCalculations();
+
+                // Redraw the visualization
+                this.visualize({
+                    processes: this.currentProcesses,
+                    flows: this.currentFlows,
+                    infoFlows: this.currentInfoFlows,
+                    positions: this.positions
+                });
+                
+                return true;
+            }
+            
+            return false;
+        };
+
+        const cleanup = () => {
+            if (!isShowingAlert && input && input.parentNode) {
+                input.removeEventListener('keydown', handleKeyDown);
+                input.removeEventListener('blur', handleBlur);
+                document.body.removeChild(input);
+                isEditing = false;
+                input = null;
+            }
+        };
+
+        const handleKeyDown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (saveValue()) {
+                    cleanup();
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cleanup();
+            }
+        };
+
+        const handleBlur = () => {
+            if (!isShowingAlert) {
+                setTimeout(() => {
+                    if (saveValue()) {
+                        cleanup();
+                    }
+                }, 100);
+            }
+        };
+
+        input.addEventListener('keydown', handleKeyDown);
+        input.addEventListener('blur', handleBlur);
+        
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+    };
+    
+    textElement.addEventListener('click', startEdit);
 }
 }
