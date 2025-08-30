@@ -33,7 +33,9 @@ body {
 
 .main-content {
     display: flex;
-    gap: 20px;
+    position: relative;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .editor-panel, .visualization-panel {
@@ -41,6 +43,42 @@ body {
     background: #f8f9fa;
     border-radius: 8px;
     padding: 15px;
+}
+
+.editor-panel {
+    position: relative;
+    width: 400px;
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    transition: transform 0.3s ease;
+}
+
+.editor-panel.collapsed {
+    transform: translateX(-100%);
+    position: absolute;
+    left: 0;
+}
+
+.editor-toggle {
+    position: absolute;
+    right: -40px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 40px;
+    background: #3498db;
+    color: white;
+    border: none;
+    cursor: pointer;
+    border-radius: 0 4px 4px 0;
+    font-size: 20px;
+    z-index: 100;
+}
+
+.editor-toggle:hover {
+    background: #2980b9;
 }
 
 .panel-header {

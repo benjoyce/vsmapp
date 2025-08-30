@@ -14,15 +14,13 @@
         </div>
         
         <div class="main-content">
-            <div class="editor-panel">
+            <div class="editor-panel collapsed">
+                <button class="editor-toggle" title="Toggle DSL Editor">⟩</button>
                 <div class="panel-header">
-                    <h3 class="panel-title">DSL Editor</h3>
-                    <div class="button-group">
-                        <button class="editor-button" onclick="window.saveVSM()">Save VSM</button>
-                        <button class="parse-button" onclick="window.parseAndVisualize()">Generate VSM</button>
-                    </div>
+                    <h2 class="panel-title">DSL Editor</h2>
+                    <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
                 </div>
-                <textarea id="dslEditor" class="editor" placeholder="Enter your VSM DSL here...">process stamping {
+                <textarea id="dslEditor" class="editor" spellcheck="false">process stamping {
   stage_id: 1
   name: "Sheet Metal Stamping"
   owner: "Manufacturing Team A"
@@ -30,7 +28,6 @@
   lead_time: 3.2d
   cycle_time: 45s
   process_time: 40s
-  batch_size: 100
   defect_rate: 2.5
 }
 
@@ -42,7 +39,6 @@ process welding {
   lead_time: 1.8d
   cycle_time: 60s
   process_time: 55s
-  batch_size: 50
   defect_rate: 1.2
 }
 
@@ -54,7 +50,6 @@ process photography {
   lead_time: 1.2d
   cycle_time: 30s
   process_time: 25s
-  batch_size: 100
   defect_rate: 0.5
 }
 
@@ -66,7 +61,6 @@ process assembly {
   lead_time: 2.5d
   cycle_time: 90s
   process_time: 85s
-  batch_size: 25
   defect_rate: 3.1
 }
 
@@ -86,7 +80,6 @@ flow from photography to assembly {
   wait_time: 2.1d
 }</textarea>
             </div>
-            
             <div class="visualization-panel">
                 <div class="panel-header">
                     <h3 class="panel-title">Value Stream Map</h3>
@@ -124,87 +117,80 @@ flow from photography to assembly {
         const parser = new VSMParser();
         let visualizer;
 
-        function initializeVSM() {
+        async function initializeVSM() {
+            // Initialize visualizer
             visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
             
-            // Try to load saved state from localStorage
-            const savedState = localStorage.getItem('vsmState');
-            if (savedState) {
-                try {
-                    const state = JSON.parse(savedState);
-                    visualizer.visualize(state);
-                } catch (e) {
-                    console.error('Error loading saved state:', e);
-                    // Fall back to parsing current DSL
-                    parseAndVisualize();
-                }
-            } else {
-                // No saved state, parse current DSL
-                parseAndVisualize();
-            }
+            // Load initial DSL and visualize
+            const initialData = parser.loadInitialDSL();
+            visualizer.visualize(initialData);
 
-            // Add DSL editor change listener with debounce
-            let dslTimeout;
-            document.getElementById('dslEditor').addEventListener('input', () => {
-                clearTimeout(dslTimeout);
-                dslTimeout = setTimeout(() => {
-                    visualizer.parseDSLChanges();
-                }, 500); // Wait 500ms after typing stops
+            // Setup editor panel toggle
+            const editorPanel = document.querySelector('.editor-panel');
+            const toggleButton = document.querySelector('.editor-toggle');
+            
+            if (toggleButton) {
+                toggleButton.addEventListener('click', () => {
+                    editorPanel.classList.toggle('collapsed');
+                    toggleButton.textContent = editorPanel.classList.contains('collapsed') ? '⟩' : '⟨';
+                });
+            }
+        }
+
+        // Make functions globally available
+        window.parser = parser;
+        window.saveVSM = saveVSM;
+        window.parseAndVisualize = parseAndVisualize;
+
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeVSM);
+        } else {
+            initializeVSM();
+        }
+
+        function parseAndVisualize() {
+            const dslText = document.getElementById('dslEditor').value;
+            const parsedData = parser.parse(dslText);
+            
+            // Validate time hierarchies for all processes
+            let invalidProcesses = [];
+            
+            Object.entries(parsedData.processes).forEach(([processId, process]) => {
+                const ptTime = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                const ctTime = visualizer.convertTimeToStandardUnit(process.attributes.cycle_time);
+                const ltTime = visualizer.convertTimeToStandardUnit(process.attributes.lead_time);
+                
+                const processName = process.attributes.name || processId;
+                
+                if (ptTime > ctTime) {
+                    invalidProcesses.push(`${processName} (Process Time > Cycle Time)`);
+                }
+                if (ctTime > ltTime) {
+                    invalidProcesses.push(`${processName} (Cycle Time > Lead Time)`);
+                }
+                if (ptTime > ltTime) {
+                    invalidProcesses.push(`${processName} (Process Time > Lead Time)`);
+                }
             });
+            
+            if (invalidProcesses.length > 0) {
+                visualizer.showCustomAlert(
+                    'Invalid time values found:\n' + invalidProcesses.join('\n'),
+                    null
+                );
+                return;
+            }
+            
+            // If validation passes, update visualization
+            visualizer.visualize(parsedData);
         }
 
         function saveVSM() {
             if (visualizer) {
                 visualizer.saveState();
-                // Show feedback to user
-                const feedback = document.createElement('div');
-                feedback.textContent = 'VSM saved successfully';
-                feedback.style.position = 'fixed';
-                feedback.style.top = '20px';
-                feedback.style.right = '20px';
-                feedback.style.background = '#2ecc71';
-                feedback.style.color = 'white';
-                feedback.style.padding = '10px 20px';
-                feedback.style.borderRadius = '4px';
-                feedback.style.opacity = '0';
-                feedback.style.transition = 'opacity 0.3s';
-                
-                document.body.appendChild(feedback);
-                setTimeout(() => feedback.style.opacity = '1', 10);
-                setTimeout(() => {
-                    feedback.style.opacity = '0';
-                    setTimeout(() => document.body.removeChild(feedback), 300);
-                }, 2000);
             }
         }
-
-        function parseAndVisualize() {
-            const dslText = document.getElementById('dslEditor').value;
-            try {
-                const parsedData = parser.parse(dslText);
-                visualizer.visualize(parsedData);
-            } catch (error) {
-                console.error('Parse error:', error);
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error';
-                errorDiv.textContent = `Parse Error: ${error.message}`;
-                
-                const canvasContainer = document.querySelector('.canvas-container');
-                const existingError = document.querySelector('.error');
-                if (existingError) {
-                    existingError.remove();
-                }
-                canvasContainer.insertBefore(errorDiv, document.getElementById('vsmCanvas'));
-            }
-        }
-
-        // Make functions available globally
-        window.parser = parser;
-        window.saveVSM = saveVSM;
-        window.parseAndVisualize = parseAndVisualize;
-
-        // Initialize on page load
-        initializeVSM();
     </script>
 </body>
 </html>

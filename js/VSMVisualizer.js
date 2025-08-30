@@ -117,9 +117,9 @@ export default class VSMVisualizer {
 
             // Process attributes
             const attributes = [
-                { key: 'PT', value: process.attributes.cycle_time || 'N/A', attr: 'cycle_time' },
+                { key: 'PT', value: process.attributes.process_time || 'N/A', attr: 'process_time' },
+                { key: 'CT', value: process.attributes.cycle_time || 'N/A', attr: 'cycle_time' },
                 { key: 'LT', value: process.attributes.lead_time || 'N/A', attr: 'lead_time' },
-                { key: 'Batch', value: process.attributes.batch_size || 'N/A', attr: 'batch_size' },
                 { key: 'Defect', value: `${process.attributes.defect_rate || 'N/A'}%`, attr: 'defect_rate' }
             ];
 
@@ -677,7 +677,38 @@ export default class VSMVisualizer {
         const dslText = document.getElementById('dslEditor').value;
         const parsedData = window.parser.parse(dslText);
         
-        // Update current data
+        // Validate Process Time vs Lead Time for all processes
+        let hasInvalidTimes = false;
+        let invalidProcesses = [];
+        
+        Object.entries(parsedData.processes).forEach(([processId, process]) => {
+            const ptTime = this.convertTimeToStandardUnit(process.attributes.cycle_time);
+            const ltTime = this.convertTimeToStandardUnit(process.attributes.lead_time);
+            
+            if (ptTime > ltTime) {
+                hasInvalidTimes = true;
+                invalidProcesses.push(process.attributes.name || processId);
+            }
+        });
+        
+        if (hasInvalidTimes) {
+            const processes = invalidProcesses.join(', ');
+            this.showCustomAlert(
+                `Process Time cannot be greater than Lead Time in: ${processes}`, 
+                () => {
+                    // Reset to last valid state
+                    this.visualize({
+                        processes: this.currentProcesses,
+                        flows: this.currentFlows,
+                        infoFlows: this.currentInfoFlows,
+                        positions: this.positions
+                    });
+                }
+            );
+            return;
+        }
+        
+        // Update current data if validation passes
         this.currentProcesses = parsedData.processes;
         this.currentFlows = parsedData.flows;
         
@@ -783,7 +814,6 @@ export default class VSMVisualizer {
                 lead_time: '0d',
                 cycle_time: '0s',
                 process_time: '0s',
-                batch_size: '0',
                 defect_rate: '0'
             }
         };
@@ -802,7 +832,6 @@ export default class VSMVisualizer {
   lead_time: ${process.attributes.lead_time}
   cycle_time: ${process.attributes.cycle_time}
   process_time: ${process.attributes.process_time}
-  batch_size: ${process.attributes.batch_size}
   defect_rate: ${process.attributes.defect_rate}
 }\n`;
 
@@ -879,22 +908,74 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
             
             if (!isValid) return false;
 
-            if (attributeName === 'cycle_time') {
-                const ptTime = this.convertTimeToStandardUnit(value);
+            // Time hierarchy validation (PT ≤ CT ≤ LT)
+            if (attributeName.includes('time')) {
+                const newTime = this.convertTimeToStandardUnit(value);
                 const ltTime = this.convertTimeToStandardUnit(
                     this.currentProcesses[processId].attributes.lead_time
                 );
-                
-                if (ptTime > ltTime && !isShowingAlert) {
-                    isShowingAlert = true;
-                    this.showCustomAlert('Process Time cannot be greater than Lead Time', () => {
-                        isShowingAlert = false;
-                        if (input) {
-                            input.focus();
-                            input.select();
+                const ctTime = this.convertTimeToStandardUnit(
+                    this.currentProcesses[processId].attributes.cycle_time
+                );
+                const ptTime = this.convertTimeToStandardUnit(
+                    this.currentProcesses[processId].attributes.process_time
+                );
+
+                if (attributeName === 'process_time') {
+                    if (newTime > ctTime) {
+                        if (!isShowingAlert) {
+                            isShowingAlert = true;
+                            this.showCustomAlert('Process Time cannot be greater than Cycle Time', () => {
+                                isShowingAlert = false;
+                                if (input) {
+                                    input.focus();
+                                    input.select();
+                                }
+                            });
                         }
-                    });
-                    return false;
+                        return false;
+                    }
+                } else if (attributeName === 'cycle_time') {
+                    if (newTime > ltTime) {
+                        if (!isShowingAlert) {
+                            isShowingAlert = true;
+                            this.showCustomAlert('Cycle Time cannot be greater than Lead Time', () => {
+                                isShowingAlert = false;
+                                if (input) {
+                                    input.focus();
+                                    input.select();
+                                }
+                            });
+                        }
+                        return false;
+                    }
+                    if (ptTime > newTime) {
+                        if (!isShowingAlert) {
+                            isShowingAlert = true;
+                            this.showCustomAlert('Cycle Time cannot be less than Process Time', () => {
+                                isShowingAlert = false;
+                                if (input) {
+                                    input.focus();
+                                    input.select();
+                                }
+                            });
+                        }
+                        return false;
+                    }
+                } else if (attributeName === 'lead_time') {
+                    if (ctTime > newTime) {
+                        if (!isShowingAlert) {
+                            isShowingAlert = true;
+                            this.showCustomAlert('Lead Time cannot be less than Cycle Time', () => {
+                                isShowingAlert = false;
+                                if (input) {
+                                    input.focus();
+                                    input.select();
+                                }
+                            });
+                        }
+                        return false;
+                    }
                 }
             }
             
