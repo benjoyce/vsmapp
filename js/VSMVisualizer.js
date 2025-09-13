@@ -8,7 +8,15 @@ export default class VSMVisualizer {
         this.positions = {};
         this.currentFlows = [];
         this.currentInfoFlows = [];
+        this.isPanning = false;
+        this.panStart = { x: 0, y: 0 };
+        this.viewBox = { x: 0, y: 0, width: this.width, height: this.height };
+        this.zoomLevel = 1;
+        this.minZoom = 0.1;
+        this.maxZoom = 3;
         this.setupSVG();
+        this.setupPanning();
+        this.setupZoom();
     }
 
     setupSVG() {
@@ -34,6 +42,87 @@ export default class VSMVisualizer {
         marker.appendChild(polygon);
         defs.appendChild(marker);
         this.svg.appendChild(defs);
+
+        // Add these lines after clearing the SVG
+        this.svg.style.width = '100%';
+        this.svg.style.height = '100%';
+        this.svg.style.cursor = 'default';
+    }
+
+    setupPanning() {
+        // Prevent context menu on right-click
+        this.svg.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+        });
+
+        // Start panning on right mouse button down
+        this.svg.addEventListener('mousedown', (e) => {
+            if (e.button === 2) { // Right mouse button
+                this.isPanning = true;
+                this.panStart = {
+                    x: e.clientX - this.viewBox.x,
+                    y: e.clientY - this.viewBox.y
+                };
+                this.svg.style.cursor = 'grabbing';
+            }
+        });
+
+        // Handle panning movement
+        this.svg.addEventListener('mousemove', (e) => {
+            if (this.isPanning) {
+                const newX = e.clientX - this.panStart.x;
+                const newY = e.clientY - this.panStart.y;
+                
+                // Update viewBox
+                this.viewBox.x = newX;
+                this.viewBox.y = newY;
+                this.svg.setAttribute('viewBox', 
+                    `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`);
+            }
+        });
+
+        // Stop panning on mouse button release
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 2 && this.isPanning) {
+                this.isPanning = false;
+                this.svg.style.cursor = 'default';
+            }
+        });
+
+        // Initialize viewBox
+        this.svg.setAttribute('viewBox', 
+            `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`);
+    }
+
+    setupZoom() {
+        this.svg.addEventListener('wheel', (e) => {
+            // Only handle zoom when Ctrl key is pressed
+            if (e.ctrlKey) {
+                e.preventDefault();
+                
+                // Get mouse position relative to SVG
+                const svgPoint = this.svg.createSVGPoint();
+                svgPoint.x = e.clientX;
+                svgPoint.y = e.clientY;
+                const mousePoint = svgPoint.matrixTransform(this.svg.getScreenCTM().inverse());
+
+                // Calculate zoom factor based on wheel delta
+                const delta = e.deltaY < 0 ? 1.1 : 0.9;
+                const newZoom = Math.min(Math.max(this.zoomLevel * delta, this.minZoom), this.maxZoom);
+                const zoomFactor = newZoom / this.zoomLevel;
+
+                // Update viewBox to zoom around mouse position
+                this.viewBox.width /= zoomFactor;
+                this.viewBox.height /= zoomFactor;
+                this.viewBox.x += (mousePoint.x - this.viewBox.x) * (1 - 1/zoomFactor);
+                this.viewBox.y += (mousePoint.y - this.viewBox.y) * (1 - 1/zoomFactor);
+
+                // Update zoom level and viewBox
+                this.zoomLevel = newZoom;
+                this.svg.setAttribute('viewBox', 
+                    `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`);
+            }
+        }, { passive: false });
     }
 
     calculatePositions(processes, flows) {
