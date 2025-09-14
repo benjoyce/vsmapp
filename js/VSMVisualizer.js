@@ -200,8 +200,12 @@ export default class VSMVisualizer {
             const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             title.setAttribute('x', pos.x + this.processWidth / 2);
             title.setAttribute('y', pos.y + 20);
-            title.setAttribute('class', 'process-text');
+            title.setAttribute('class', 'process-text editable');
             title.textContent = process.attributes.name || processId;
+            title.style.cursor = 'pointer';
+
+            // Make title editable
+            this.makeNameEditable(title, processId);
             group.appendChild(title);
 
             // Process attributes
@@ -380,6 +384,7 @@ export default class VSMVisualizer {
             selectedElement = null;
             window.removeEventListener('mousemove', drag);
             window.removeEventListener('mouseup', endDrag);
+            this.saveState(); // Add this line
         };
         
         group.addEventListener('mousedown', startDrag);
@@ -506,6 +511,8 @@ export default class VSMVisualizer {
     }
 
     saveState() {
+        console.log('Saving VSM state...', new Date().toLocaleTimeString());
+
         const currentState = {
             processes: this.currentProcesses,
             flows: this.currentFlows,
@@ -545,10 +552,15 @@ export default class VSMVisualizer {
     loadState() {
         const savedState = localStorage.getItem('vsmState');
         if (savedState) {
-            const state = JSON.parse(savedState);
-            document.getElementById('dslEditor').value = state.dsl;
-            this.savedPositions = state.positions;
-            return true;
+            try {
+                const state = JSON.parse(savedState);
+                // Apply the saved state
+                this.visualize(state);
+                return true;
+            } catch (e) {
+                console.error('Error loading saved state:', e);
+                return false;
+            }
         }
         return false;
     }
@@ -873,6 +885,7 @@ export default class VSMVisualizer {
                 infoFlows: this.currentInfoFlows,
                 positions: this.positions
             });
+            this.saveState(); // Add this line
         };
 
         circle.addEventListener('click', addNewProcess);
@@ -1139,5 +1152,88 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
     };
     
     textElement.addEventListener('click', startEdit);
+}
+
+makeNameEditable(titleElement, processId) {
+    let input = null;
+    let isEditing = false;
+    
+    const startEdit = (evt) => {
+        evt.stopPropagation();
+        if (isEditing) return;
+        isEditing = true;
+        
+        input = document.createElement('input');
+        input.type = 'text';
+        input.value = this.currentProcesses[processId].attributes.name || '';
+        input.style.position = 'absolute';
+        input.style.left = `${evt.clientX - 100}px`; // Wider input for names
+        input.style.top = `${evt.clientY - 15}px`;
+        input.style.width = '200px'; // Wider input for names
+        input.style.height = '25px';
+        input.style.fontSize = '14px';
+        input.style.textAlign = 'center';
+        input.style.border = '1px solid #2c3e50';
+        input.style.borderRadius = '4px';
+
+        const saveValue = () => {
+            if (!input) return false;
+            const newValue = input.value.trim();
+            
+            if (newValue) {
+                // Update the process name
+                this.currentProcesses[processId].attributes.name = newValue;
+                titleElement.textContent = newValue;
+                
+                // Update DSL
+                this.updateDSLWithProcessAttribute(processId, 'name', `"${newValue}"`);
+                
+                // Save state to ensure persistence
+                this.saveState();
+                
+                return true;
+            }
+            return false;
+        };
+
+        const cleanup = () => {
+            if (input && input.parentNode) {
+                input.removeEventListener('keydown', handleKeyDown);
+                input.removeEventListener('blur', handleBlur);
+                document.body.removeChild(input);
+                isEditing = false;
+                input = null;
+            }
+        };
+
+        const handleKeyDown = (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (saveValue()) {
+                    cleanup();
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                cleanup();
+            }
+        };
+
+        const handleBlur = () => {
+            setTimeout(() => {
+                if (saveValue()) {
+                    cleanup();
+                }
+            }, 100);
+        };
+
+        input.addEventListener('keydown', handleKeyDown);
+        input.addEventListener('blur', handleBlur);
+        
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+    };
+    
+    titleElement.addEventListener('click', startEdit);
 }
 }

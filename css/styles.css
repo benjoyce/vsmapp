@@ -88,6 +88,13 @@ body {
     margin-bottom: 15px;
 }
 
+.visualization-panel .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+}
+
 .panel-title {
     margin: 0;
     color: #2c3e50;
@@ -138,6 +145,11 @@ body {
 .process-text {
     text-anchor: middle;
     font-weight: bold;
+}
+
+.process-text.editable:hover {
+    text-decoration: underline;
+    fill: #3498db;
 }
 
 .process-details {

@@ -18,7 +18,11 @@
                 <button class="editor-toggle" title="Toggle DSL Editor">⟩</button>
                 <div class="panel-header">
                     <h2 class="panel-title">DSL Editor</h2>
-                    <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
+                    <div class="button-group">
+                        <button class="editor-button" data-action="clear">New VSM</button>
+                        <button class="editor-button" data-action="add">Add Process</button>
+                        <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
+                    </div>
                 </div>
                 <textarea id="dslEditor" class="editor" spellcheck="false">process stamping {
   stage_id: 1
@@ -117,13 +121,40 @@ flow from photography to assembly {
         const parser = new VSMParser();
         let visualizer;
 
+        function clearVSM() {
+            // Clear the DSL editor
+            document.getElementById('dslEditor').value = '';
+            
+            // Reset the visualizer data
+            visualizer.currentProcesses = {};
+            visualizer.currentFlows = [];
+            visualizer.currentInfoFlows = [];
+            visualizer.positions = {};
+            
+            // Clear the visualization
+            visualizer.visualize({
+                processes: {},
+                flows: [],
+                infoFlows: [],
+                positions: {}
+            });
+            
+            // Reset totals
+            document.getElementById('totalLeadTime').textContent = '0.0d';
+            document.getElementById('totalWaitTime').textContent = '0.0d';
+            document.getElementById('totalProcessTime').textContent = '0.0d';
+            document.getElementById('criticalPath').textContent = '0.0d';
+        }
+
         async function initializeVSM() {
-            // Initialize visualizer
             visualizer = new VSMVisualizer(document.getElementById('vsmCanvas'));
             
-            // Load initial DSL and visualize
-            const initialData = parser.loadInitialDSL();
-            visualizer.visualize(initialData);
+            // Try to load saved state first
+            if (!visualizer.loadState()) {
+                // If no saved state, load initial DSL
+                const initialData = parser.loadInitialDSL();
+                visualizer.visualize(initialData);
+            }
 
             // Setup editor panel toggle
             const editorPanel = document.querySelector('.editor-panel');
@@ -135,18 +166,10 @@ flow from photography to assembly {
                     toggleButton.textContent = editorPanel.classList.contains('collapsed') ? '⟩' : '⟨';
                 });
             }
-        }
 
-        // Make functions globally available
-        window.parser = parser;
-        window.saveVSM = saveVSM;
-        window.parseAndVisualize = parseAndVisualize;
-
-        // Initialize when DOM is ready
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeVSM);
-        } else {
-            initializeVSM();
+            // Add button click handlers
+            document.querySelector('[data-action="clear"]').addEventListener('click', clearVSM);
+            document.querySelector('[data-action="add"]').addEventListener('click', addNewProcess);
         }
 
         function parseAndVisualize() {
@@ -190,6 +213,66 @@ flow from photography to assembly {
             if (visualizer) {
                 visualizer.saveState();
             }
+        }
+
+        function addNewProcess() {
+            const processId = `process_${Date.now()}`;
+            const newProcess = {
+                attributes: {
+                    stage_id: 1,
+                    name: "New Process",
+                    owner: "",
+                    description: "New process description",
+                    lead_time: "0d",
+                    cycle_time: "0s",
+                    process_time: "0s",
+                    defect_rate: "0"
+                }
+            };
+
+            // Add to current processes
+            visualizer.currentProcesses[processId] = newProcess;
+
+            // Calculate position for new process
+            const centerX = visualizer.width / 2 - visualizer.processWidth / 2;
+            const centerY = visualizer.height / 2 - visualizer.processHeight / 2;
+            visualizer.positions[processId] = { x: centerX, y: centerY };
+
+            // Update the DSL text
+            const dslEditor = document.getElementById('dslEditor');
+            const processBlock = `\nprocess ${processId} {
+  stage_id: 1
+  name: "New Process"
+  owner: ""
+  description: "New process description"
+  lead_time: 0d
+  cycle_time: 0s
+  process_time: 0s
+  defect_rate: 0
+}\n`;
+            
+            dslEditor.value += processBlock;
+
+            // Redraw the visualization
+            visualizer.visualize({
+                processes: visualizer.currentProcesses,
+                flows: visualizer.currentFlows,
+                infoFlows: visualizer.currentInfoFlows,
+                positions: visualizer.positions
+            });
+        }
+
+        // Make functions globally available
+        window.parser = parser;
+        window.saveVSM = saveVSM;
+        window.parseAndVisualize = parseAndVisualize;
+        window.addNewProcess = addNewProcess;
+
+        // Initialize when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeVSM);
+        } else {
+            initializeVSM();
         }
     </script>
 </body>
