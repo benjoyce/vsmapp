@@ -84,6 +84,7 @@ flow from photography to assembly {
   wait_time: 2.1d
 }</textarea>
             </div>
+            <div class="pane-splitter" id="paneSplitter"></div>
             <div class="visualization-panel">
                 <div class="panel-header">
                     <h3 class="panel-title">Value Stream Map</h3>
@@ -268,11 +269,51 @@ flow from photography to assembly {
         window.parseAndVisualize = parseAndVisualize;
         window.addNewProcess = addNewProcess;
 
+        // Initialize pane splitter
+        function initializePaneSplitter() {
+            const splitter = document.getElementById('paneSplitter');
+            const editorPanel = document.querySelector('.editor-panel');
+            const mainContent = document.querySelector('.main-content');
+            let isResizing = false;
+            let startX = 0;
+            let startWidth = 0;
+
+            splitter.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                startX = e.clientX;
+                startWidth = editorPanel.offsetWidth;
+                splitter.classList.add('active');
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor = 'col-resize';
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (!isResizing) return;
+
+                const deltaX = e.clientX - startX;
+                const newWidth = Math.max(200, Math.min(startWidth + deltaX, mainContent.offsetWidth * 0.8));
+                editorPanel.style.width = newWidth + 'px';
+            });
+
+            document.addEventListener('mouseup', () => {
+                if (isResizing) {
+                    isResizing = false;
+                    splitter.classList.remove('active');
+                    document.body.style.userSelect = '';
+                    document.body.style.cursor = '';
+                }
+            });
+        }
+
         // Initialize when DOM is ready
         if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', initializeVSM);
+            document.addEventListener('DOMContentLoaded', () => {
+                initializeVSM();
+                initializePaneSplitter();
+            });
         } else {
             initializeVSM();
+            initializePaneSplitter();
         }
     </script>
 </body>

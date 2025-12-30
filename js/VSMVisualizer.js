@@ -368,9 +368,36 @@ export default class VSMVisualizer {
                 selectedElement.querySelectorAll('text').forEach(text => {
                     const currentX = parseFloat(text.getAttribute('x'));
                     const currentY = parseFloat(text.getAttribute('y'));
-                    text.setAttribute('x', currentX + deltaX);
-                    text.setAttribute('y', currentY + deltaY);
+                    if (!isNaN(currentX)) {
+                        text.setAttribute('x', currentX + deltaX);
+                    }
+                    if (!isNaN(currentY)) {
+                        text.setAttribute('y', currentY + deltaY);
+                    }
                 });
+
+                // Update the Add Process button (circle and plus symbol)
+                const addProcessCircle = selectedElement.querySelector('.add-process-circle');
+                const addProcessPlus = selectedElement.querySelector('.add-process-plus');
+                
+                console.log('Circle found:', !!addProcessCircle);
+                console.log('Plus found:', !!addProcessPlus);
+                
+                if (addProcessCircle) {
+                    // Recalculate circle position based on the new box position
+                    const newCenterX = newX + this.processWidth;
+                    const newCenterY = newY + this.processHeight / 2;
+                    addProcessCircle.setAttribute('cx', newCenterX);
+                    addProcessCircle.setAttribute('cy', newCenterY);
+                }
+                
+                if (addProcessPlus) {
+                    // Recalculate plus position based on the new box position
+                    const newCenterX = newX + this.processWidth;
+                    const newCenterY = newY + this.processHeight / 2 + 1;
+                    addProcessPlus.setAttribute('x', newCenterX);
+                    addProcessPlus.setAttribute('y', newCenterY);
+                }
                 
                 this.positions[processId] = { x: newX, y: newY };
                 this.redrawFlows();
