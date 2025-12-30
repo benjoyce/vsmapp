@@ -574,6 +574,50 @@ export default class VSMVisualizer {
         
         // Update all timing calculations after loading state
         this.updateTimingCalculations();
+        
+        // Fit the canvas to show all processes
+        this.fitCanvasToContent();
+    }
+
+    fitCanvasToContent() {
+        if (Object.keys(this.positions).length === 0) return;
+
+        // Find the bounding box of all processes
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        Object.values(this.positions).forEach(pos => {
+            minX = Math.min(minX, pos.x);
+            minY = Math.min(minY, pos.y);
+            maxX = Math.max(maxX, pos.x + this.processWidth);
+            maxY = Math.max(maxY, pos.y + this.processHeight);
+        });
+
+        // Add padding around the content
+        const padding = 50;
+        minX -= padding;
+        minY -= padding;
+        maxX += padding;
+        maxY += padding;
+
+        // Calculate the width and height of the bounding box
+        const boundingWidth = maxX - minX;
+        const boundingHeight = maxY - minY;
+
+        // Update viewBox to fit the content
+        this.viewBox.x = minX;
+        this.viewBox.y = minY;
+        this.viewBox.width = boundingWidth;
+        this.viewBox.height = boundingHeight;
+
+        // Update the SVG viewBox
+        this.svg.setAttribute('viewBox', 
+            `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`);
+
+        // Reset zoom level
+        this.zoomLevel = 1;
     }
 
     loadState() {
