@@ -60,8 +60,8 @@ export default class VSMVisualizer {
             if (e.button === 2) { // Right mouse button
                 this.isPanning = true;
                 this.panStart = {
-                    x: e.clientX - this.viewBox.x,
-                    y: e.clientY - this.viewBox.y
+                    x: e.clientX + this.viewBox.x,
+                    y: e.clientY + this.viewBox.y
                 };
                 this.svg.style.cursor = 'grabbing';
             }
@@ -70,8 +70,8 @@ export default class VSMVisualizer {
         // Handle panning movement
         this.svg.addEventListener('mousemove', (e) => {
             if (this.isPanning) {
-                const newX = e.clientX - this.panStart.x;
-                const newY = e.clientY - this.panStart.y;
+                const newX = this.panStart.x - e.clientX;
+                const newY = this.panStart.y - e.clientY;
                 
                 // Update viewBox
                 this.viewBox.x = newX;
