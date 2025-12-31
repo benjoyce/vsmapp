@@ -9,6 +9,7 @@ export default class VSMVisualizer {
         this.currentFlows = [];
         this.currentInfoFlows = [];
         this.isPanning = false;
+        this.selectedProcess = null;
         this.panStart = { x: 0, y: 0 };
         this.viewBox = { x: 0, y: 0, width: this.width, height: this.height };
         this.zoomLevel = 1;
@@ -266,6 +267,12 @@ export default class VSMVisualizer {
             rect.setAttribute('data-process-id', processId);
 
             group.appendChild(rect);
+
+            // Allow selecting a process by clicking its border
+            rect.addEventListener('click', (evt) => {
+                evt.stopPropagation();
+                this.selectProcess(processId);
+            });
 
             // Process name
             const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -1212,16 +1219,21 @@ showCustomAlert(message, onClose) {
 // Flow interaction methods
 setupFlowDeletion() {
     document.addEventListener('keydown', (evt) => {
-        if (evt.key === 'Delete' && this.selectedFlow) {
-            this.deleteSelectedFlow();
-        }
+            if (evt.key === 'Delete') {
+                if (this.selectedProcess) {
+                    this.deleteSelectedProcess();
+                } else if (this.selectedFlow) {
+                    this.deleteSelectedFlow();
+                }
+            }
     });
 
     // Deselect flow when clicking on canvas background
     this.svg.addEventListener('click', (evt) => {
-        if (evt.target === this.svg || evt.target.tagName === 'svg') {
-            this.deselectFlow();
-        }
+            if (evt.target === this.svg || evt.target.tagName === 'svg') {
+                this.deselectFlow();
+                this.deselectProcess();
+            }
     });
 }
 
@@ -1247,6 +1259,54 @@ deselectFlow() {
     this.selectedFlow = null;
 }
 
+    // Process selection helpers
+    selectProcess(processId) {
+        // Deselect any existing process
+        this.deselectProcess();
+
+        const rect = this.svg.querySelector(`rect[data-process-id="${processId}"]`);
+        if (rect) {
+            rect.classList.add('selected-process');
+            this.selectedProcess = processId;
+        }
+    }
+
+    deselectProcess() {
+        if (!this.selectedProcess) return;
+        const prev = this.svg.querySelector(`rect[data-process-id="${this.selectedProcess}"]`);
+        if (prev) prev.classList.remove('selected-process');
+        this.selectedProcess = null;
+    }
+
+    deleteSelectedProcess() {
+        if (!this.selectedProcess) return;
+        const id = this.selectedProcess;
+
+        // Remove process
+        if (this.currentProcesses && this.currentProcesses[id]) {
+            delete this.currentProcesses[id];
+        }
+
+        // Remove any flows that reference this process
+        this.currentFlows = this.currentFlows.filter(f => f.from !== id && f.to !== id);
+        this.currentInfoFlows = this.currentInfoFlows.filter(f => f.from !== id && f.to !== id);
+
+        // Remove position entry
+        if (this.positions && this.positions[id]) delete this.positions[id];
+
+        // Clear selection
+        this.selectedProcess = null;
+
+        // Re-render and persist state
+        this.visualize({
+            processes: this.currentProcesses,
+            flows: this.currentFlows,
+            infoFlows: this.currentInfoFlows,
+            positions: this.positions
+        });
+        this.saveState();
+    }
+    
 deleteSelectedFlow() {
     if (!this.selectedFlow) return;
 

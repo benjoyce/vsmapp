@@ -182,8 +182,26 @@ body {
     stroke-width: 2;
 }
 
+/* Make process box hover match flow-line hover behaviour */
+.process-box {
+    transition: stroke-width 0.2s;
+}
+
+.process-box:hover {
+    stroke-width: 4;
+}
+
+.process-box.critical:hover {
+    stroke-width: 5;
+}
+
 .process-box.critical {
     stroke: #27ae60;
+    stroke-width: 3;
+}
+
+.process-box.selected-process {
+    stroke: #e67e22; /* orange selection highlight */
     stroke-width: 3;
 }
 
