@@ -52,7 +52,12 @@ export default class VSMParser {
             } else if (currentBlock && currentBlockType === 'process') {
                 const [key, ...valueParts] = line.split(':').map(part => part.trim());
                 const value = valueParts.join(':').replace(/"/g, '');
-                currentBlock.attributes[key] = value;
+                // Map lead_time to wait_time for internal consistency
+                const internalKey = key === 'lead_time' ? 'wait_time' : key;
+                // Skip cycle_time since it's calculated as PT + WT
+                if (key !== 'cycle_time') {
+                    currentBlock.attributes[internalKey] = value;
+                }
             } else if (currentBlock && currentBlockType === 'flow') {
                 const [key, value] = line.split(':').map(part => part.trim());
                 currentBlock[key] = value;
@@ -74,7 +79,11 @@ export default class VSMParser {
         Object.entries(data.processes).forEach(([id, process]) => {
             dsl += `process ${id} {\n`;
             Object.entries(process.attributes).forEach(([key, value]) => {
-                dsl += `  ${key}: ${typeof value === 'string' ? `"${value}"` : value}\n`;
+                // Map lead_time to wait_time when serializing and skip cycle_time
+                const outputKey = key === 'lead_time' ? 'wait_time' : key;
+                if (key !== 'cycle_time') {
+                    dsl += `  ${outputKey}: ${typeof value === 'string' ? `"${value}"` : value}\n`;
+                }
             });
             dsl += '}\n\n';
         });

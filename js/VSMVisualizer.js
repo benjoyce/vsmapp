@@ -209,10 +209,11 @@ export default class VSMVisualizer {
             group.appendChild(title);
 
             // Process attributes
+            const calculatedCT = this.calculateCycleTime(process);
             const attributes = [
                 { key: 'PT', value: process.attributes.process_time || 'N/A', attr: 'process_time' },
-                { key: 'CT', value: process.attributes.cycle_time || 'N/A', attr: 'cycle_time' },
-                { key: 'LT', value: process.attributes.lead_time || 'N/A', attr: 'lead_time' },
+                { key: 'WT', value: process.attributes.wait_time || 'N/A', attr: 'wait_time' },
+                { key: 'CT', value: calculatedCT, attr: 'cycle_time', calculated: true },
                 { key: 'Defect', value: `${process.attributes.defect_rate || 'N/A'}%`, attr: 'defect_rate' }
             ];
 
@@ -223,8 +224,8 @@ export default class VSMVisualizer {
                 detailText.setAttribute('class', 'process-details');
                 detailText.textContent = `${attr.key}: ${attr.value}`;
                 
-                // Make time-based attributes editable
-                if (attr.attr.includes('time')) {
+                // Make time-based attributes editable (except calculated CT)
+                if (attr.attr.includes('time') && !attr.calculated) {
                     this.makeAttributeEditable(detailText, processId, attr.attr, attr.key);
                     detailText.style.cursor = 'pointer';
                     detailText.setAttribute('class', 'process-details editable');
@@ -463,9 +464,12 @@ export default class VSMVisualizer {
         // Build directed graph with times
         const graph = {};
         Object.keys(processes).forEach(id => {
+            const ptTime = convertTime(processes[id].attributes.process_time);
+            const wtTime = convertTime(processes[id].attributes.wait_time);
             graph[id] = {
                 edges: [],
-                leadTime: convertTime(processes[id].attributes.lead_time)
+                cycleTime: ptTime + wtTime,  // CT = PT + WT
+                waitTime: wtTime
             };
         });
         
@@ -486,7 +490,7 @@ export default class VSMVisualizer {
             const stack = [{
                 node: start,
                 path: [start],
-                time: graph[start].leadTime
+                time: graph[start].cycleTime + graph[start].waitTime
             }];
             const paths = [];
 
@@ -504,7 +508,7 @@ export default class VSMVisualizer {
                     stack.push({
                         node: edge.to,
                         path: [...path, edge.to],
-                        time: time + edge.waitTime + graph[edge.to].leadTime
+                        time: time + edge.waitTime + graph[edge.to].cycleTime + graph[edge.to].waitTime
                     });
                 }
             }
@@ -789,6 +793,24 @@ export default class VSMVisualizer {
         editor.value = lines.join('\n');
    }
 
+    // Add helper function to calculate cycle time as PT + WT
+    calculateCycleTime(process) {
+        const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
+        const wtTime = this.convertTimeToStandardUnit(process.attributes.wait_time);
+        const totalTime = ptTime + wtTime;
+        
+        // Convert back to appropriate display unit (preferring the larger unit, using 8-hour working days)
+        if (totalTime >= 1) {
+            return `${totalTime.toFixed(1)}d`;
+        } else if (totalTime >= 1/8) {
+            return `${(totalTime * 8).toFixed(1)}h`;
+        } else if (totalTime >= 1/480) {
+            return `${(totalTime * 480).toFixed(0)}m`;
+        } else {
+            return `${(totalTime * 28800).toFixed(0)}s`;
+        }
+    }
+
     // Add this new time conversion utility method to the VSMVisualizer class
 
     convertTimeToStandardUnit(timeStr) {
@@ -799,14 +821,14 @@ export default class VSMVisualizer {
         const value = parseFloat(match[1]);
         const unit = match[2];
         
-        // Convert everything to days for internal calculations
+        // Convert everything to days for internal calculations (using 8-hour working days)
         switch (unit) {
-            case 'M': return value * 30;      // Months to days
-            case 'w': return value * 7;       // Weeks to days
-            case 'd': return value;           // Days (base unit)
-            case 'h': return value / 24;      // Hours to days
-            case 'm': return value / 1440;    // Minutes to days
-            case 's': return value / 86400;   // Seconds to days
+            case 'M': return value * 30;      // Months to days (30 working days)
+            case 'w': return value * 5;       // Weeks to days (5 working days per week)
+            case 'd': return value;           // Days (base unit - 8 working hours)
+            case 'h': return value / 8;       // Hours to days (8 working hours per day)
+            case 'm': return value / 480;     // Minutes to days (8 hours * 60 minutes = 480)
+            case 's': return value / 28800;   // Seconds to days (8 hours * 3600 seconds = 28800)
             default: return 0;
         }
    }
@@ -819,24 +841,35 @@ export default class VSMVisualizer {
             this.currentFlows
         );
         
-        // Update totals using converted values
-        const totalLeadTime = Object.values(this.currentProcesses)
-            .reduce((sum, process) => sum + this.convertTimeToStandardUnit(process.attributes.lead_time), 0);
+        // Calculate overall Lead Time: sum of all CT + process WT + flow wait times
+        const totalCycleTime = Object.values(this.currentProcesses)
+            .reduce((sum, process) => {
+                const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
+                const wtTime = this.convertTimeToStandardUnit(process.attributes.wait_time);
+                return sum + ptTime + wtTime;  // CT = PT + WT
+            }, 0);
 
-        const totalWaitTime = this.currentFlows
+        const totalProcessWaitTime = Object.values(this.currentProcesses)
+            .reduce((sum, process) => sum + this.convertTimeToStandardUnit(process.attributes.wait_time), 0);
+
+        const totalFlowWaitTime = this.currentFlows
             .reduce((sum, flow) => sum + this.convertTimeToStandardUnit(flow.wait_time), 0);
+
+        const overallLeadTime = totalCycleTime + totalProcessWaitTime + totalFlowWaitTime;
 
         // Calculate process time only for processes on the critical path
         const totalProcessTime = this.criticalPathData.path
             .reduce((sum, processId) => {
                 const process = this.currentProcesses[processId];
-                return sum + this.convertTimeToStandardUnit(process.attributes.cycle_time);
+                const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
+                const wtTime = this.convertTimeToStandardUnit(process.attributes.wait_time);
+                return sum + ptTime + wtTime;  // CT = PT + WT
             }, 0);
 
         // Update the UI
-        document.getElementById('totalLeadTime').textContent = `${totalLeadTime.toFixed(1)}d`;
-        document.getElementById('totalWaitTime').textContent = `${totalWaitTime.toFixed(1)}d`;
-        document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)}d`;
+        document.getElementById('totalLeadTime').textContent = `${overallLeadTime.toFixed(1)}d`;
+        document.getElementById('totalWaitTime').textContent = `${(totalProcessWaitTime + totalFlowWaitTime).toFixed(1)}d`;
+        document.getElementById('totalProcessTime').textContent = `${totalCycleTime.toFixed(1)}d`;
         document.getElementById('criticalPath').textContent = 
             `${this.criticalPathData.time.toFixed(1)}d (${this.criticalPathData.path.join(' → ')})`;
         
@@ -849,36 +882,7 @@ export default class VSMVisualizer {
         const dslText = document.getElementById('dslEditor').value;
         const parsedData = window.parser.parse(dslText);
         
-        // Validate Process Time vs Lead Time for all processes
-        let hasInvalidTimes = false;
-        let invalidProcesses = [];
-        
-        Object.entries(parsedData.processes).forEach(([processId, process]) => {
-            const ptTime = this.convertTimeToStandardUnit(process.attributes.cycle_time);
-            const ltTime = this.convertTimeToStandardUnit(process.attributes.lead_time);
-            
-            if (ptTime > ltTime) {
-                hasInvalidTimes = true;
-                invalidProcesses.push(process.attributes.name || processId);
-            }
-        });
-        
-        if (hasInvalidTimes) {
-            const processes = invalidProcesses.join(', ');
-            this.showCustomAlert(
-                `Process Time cannot be greater than Lead Time in: ${processes}`, 
-                () => {
-                    // Reset to last valid state
-                    this.visualize({
-                        processes: this.currentProcesses,
-                        flows: this.currentFlows,
-                        infoFlows: this.currentInfoFlows,
-                        positions: this.positions
-                    });
-                }
-            );
-            return;
-        }
+        // No time validation needed since CT is calculated as PT + WT
         
         // Update current data if validation passes
         this.currentProcesses = parsedData.processes;
@@ -984,8 +988,7 @@ export default class VSMVisualizer {
                 name: `New ${baseProcess.attributes.name || baseId}`,
                 owner: baseProcess.attributes.owner || '',
                 description: `New process derived from ${baseId}`,
-                lead_time: '0d',
-                cycle_time: '0s',
+                wait_time: '0d',
                 process_time: '0s',
                 defect_rate: '0'
             }
@@ -1002,8 +1005,7 @@ export default class VSMVisualizer {
   name: "${process.attributes.name}"
   owner: "${process.attributes.owner}"
   description: "${process.attributes.description}"
-  lead_time: ${process.attributes.lead_time}
-  cycle_time: ${process.attributes.cycle_time}
+  wait_time: ${process.attributes.wait_time}
   process_time: ${process.attributes.process_time}
   defect_rate: ${process.attributes.defect_rate}
 }\n`;
@@ -1081,75 +1083,10 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
             
             if (!isValid) return false;
 
-            // Time hierarchy validation (PT ≤ CT ≤ LT)
+            // Time validation - only basic format validation needed since CT is calculated
             if (attributeName.includes('time')) {
-                const newTime = this.convertTimeToStandardUnit(value);
-                const ltTime = this.convertTimeToStandardUnit(
-                    this.currentProcesses[processId].attributes.lead_time
-                );
-                const ctTime = this.convertTimeToStandardUnit(
-                    this.currentProcesses[processId].attributes.cycle_time
-                );
-                const ptTime = this.convertTimeToStandardUnit(
-                    this.currentProcesses[processId].attributes.process_time
-                );
-
-                if (attributeName === 'process_time') {
-                    if (newTime > ctTime) {
-                        if (!isShowingAlert) {
-                            isShowingAlert = true;
-                            this.showCustomAlert('Process Time cannot be greater than Cycle Time', () => {
-                                isShowingAlert = false;
-                                if (input) {
-                                    input.focus();
-                                    input.select();
-                                }
-                            });
-                        }
-                        return false;
-                    }
-                } else if (attributeName === 'cycle_time') {
-                    if (newTime > ltTime) {
-                        if (!isShowingAlert) {
-                            isShowingAlert = true;
-                            this.showCustomAlert('Cycle Time cannot be greater than Lead Time', () => {
-                                isShowingAlert = false;
-                                if (input) {
-                                    input.focus();
-                                    input.select();
-                                }
-                            });
-                        }
-                        return false;
-                    }
-                    if (ptTime > newTime) {
-                        if (!isShowingAlert) {
-                            isShowingAlert = true;
-                            this.showCustomAlert('Cycle Time cannot be less than Process Time', () => {
-                                isShowingAlert = false;
-                                if (input) {
-                                    input.focus();
-                                    input.select();
-                                }
-                            });
-                        }
-                        return false;
-                    }
-                } else if (attributeName === 'lead_time') {
-                    if (ctTime > newTime) {
-                        if (!isShowingAlert) {
-                            isShowingAlert = true;
-                            this.showCustomAlert('Lead Time cannot be less than Cycle Time', () => {
-                                isShowingAlert = false;
-                                if (input) {
-                                    input.focus();
-                                    input.select();
-                                }
-                            });
-                        }
-                        return false;
-                    }
-                }
+                // No hierarchy validation needed since CT = PT + WT automatically
+                // Wait time and process time are independent and can be any positive value
             }
             
             return true;
