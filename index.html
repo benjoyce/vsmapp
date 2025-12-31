@@ -17,7 +17,6 @@
             <div class="editor-panel collapsed">
                 <button class="editor-toggle" title="Toggle DSL Editor">⟩</button>
                 <div class="panel-header">
-                    <h2 class="panel-title">DSL Editor</h2>
                     <div class="filename-display" id="currentFilename">
                         <span class="filename-label">File:</span>
                         <span class="filename-text">Untitled.vsm</span>
@@ -26,8 +25,6 @@
                         <button class="editor-button" data-action="save-file">Save File</button>
                         <button class="editor-button" data-action="load-file">Load File</button>
                         <button class="editor-button" data-action="clear">New VSM</button>
-                        <button class="editor-button" data-action="add">Add Process</button>
-                        <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
                     </div>
                 </div>
                 <textarea id="dslEditor" class="editor" spellcheck="false">process stamping {
@@ -85,13 +82,11 @@ flow from welding to assembly {
 flow from photography to assembly {
   wait_time: 2.1d
 }</textarea>
+                <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
                 <input type="file" id="fileInput" accept=".vsm" style="display: none;">
             </div>
             <div class="pane-splitter" id="paneSplitter"></div>
             <div class="visualization-panel">
-                <div class="panel-header">
-                    <h3 class="panel-title">Value Stream Map</h3>
-                </div>
                 <div class="canvas-container">
                     <svg id="vsmCanvas" width="900" height="700"></svg>
                 </div>
@@ -164,28 +159,52 @@ flow from photography to assembly {
         }
 
         function clearVSM() {
-            // Clear the DSL editor
-            document.getElementById('dslEditor').value = '';
-            
-            // Reset the visualizer data
-            visualizer.currentProcesses = {};
+            const processId = `process_${Date.now()}`;
+
+            // Create default DSL with one process
+            const defaultDSL = `process ${processId} {
+  stage_id: 1
+  name: "New Process"
+  owner: ""
+  description: "New process description"
+  wait_time: 0d
+  process_time: 0s
+  defect_rate: 0
+}`;
+
+            // Set the DSL editor
+            document.getElementById('dslEditor').value = defaultDSL;
+
+            // Create the default process structure
+            const defaultProcess = {
+                attributes: {
+                    stage_id: 1,
+                    name: "New Process",
+                    owner: "",
+                    description: "New process description",
+                    wait_time: "0d",
+                    process_time: "0s",
+                    defect_rate: "0"
+                }
+            };
+
+            // Reset the visualizer data with the default process
+            visualizer.currentProcesses = { [processId]: defaultProcess };
             visualizer.currentFlows = [];
             visualizer.currentInfoFlows = [];
-            visualizer.positions = {};
-            
-            // Clear the visualization
+
+            // Position the process in the center
+            const centerX = visualizer.width / 2 - visualizer.processWidth / 2;
+            const centerY = visualizer.height / 2 - visualizer.processHeight / 2;
+            visualizer.positions = { [processId]: { x: centerX, y: centerY } };
+
+            // Visualize with the default process
             visualizer.visualize({
-                processes: {},
+                processes: visualizer.currentProcesses,
                 flows: [],
                 infoFlows: [],
-                positions: {}
+                positions: visualizer.positions
             });
-            
-            // Reset totals
-            document.getElementById('totalLeadTime').textContent = '0.0d';
-            document.getElementById('totalWaitTime').textContent = '0.0d';
-            document.getElementById('totalProcessTime').textContent = '0.0d';
-            document.getElementById('criticalPath').textContent = '0.0d';
 
             // Reset filename
             setFilename('Untitled.vsm');
@@ -216,7 +235,6 @@ flow from photography to assembly {
 
             // Add button click handlers
             document.querySelector('[data-action="clear"]').addEventListener('click', clearVSM);
-            document.querySelector('[data-action="add"]').addEventListener('click', addNewProcess);
             document.querySelector('[data-action="save-file"]').addEventListener('click', saveVSMToFile);
             document.querySelector('[data-action="load-file"]').addEventListener('click', loadVSMFromFile);
 
