@@ -15,6 +15,11 @@ export default class VSMVisualizer {
         this.minZoom = 0.1;
         this.maxZoom = 3;
 
+        // Layout offsets
+        this.connectionPointOffset = 22; // legacy horizontal offset (kept for compatibility)
+        // Vertical offset from the process center to position the connection point below the add-circle
+        this.connectionPointVerticalOffset = 20; // px down from the process vertical center
+
         // Flow interaction state
         this.isDraggingFlow = false;
         this.flowDragStart = null;
@@ -55,6 +60,12 @@ export default class VSMVisualizer {
         this.svg.style.width = '100%';
         this.svg.style.height = '100%';
         this.svg.style.cursor = 'default';
+
+        // Create a top-level controls layer so buttons and connection points
+        // render above flow lines. This group will be appended after flows.
+        const controlsLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        controlsLayer.setAttribute('id', 'controls-layer');
+        this.svg.appendChild(controlsLayer);
     }
 
     setupPanning() {
@@ -204,6 +215,7 @@ export default class VSMVisualizer {
             rect.setAttribute('y', pos.y);
             rect.setAttribute('width', this.processWidth);
             rect.setAttribute('height', this.processHeight);
+            rect.setAttribute('data-process-id', processId);
             rect.setAttribute('class', `process-box${
                 this.criticalPathData?.path.includes(processId) ? ' critical' : ''
             }`);
@@ -408,29 +420,32 @@ export default class VSMVisualizer {
                     }
                 });
 
-                // Update the Add Process button (circle and plus symbol)
-                const addProcessCircle = selectedElement.querySelector('.add-process-circle');
-                const addProcessPlus = selectedElement.querySelector('.add-process-plus');
-                
-                console.log('Circle found:', !!addProcessCircle);
-                console.log('Plus found:', !!addProcessPlus);
-                
+                // Update the Add Process button (circle and plus symbol) which live in the controls layer
+                const addProcessCircle = this.svg.querySelector(`.add-process-circle[data-add-for="${processId}"]`);
+                const addProcessPlus = this.svg.querySelector(`.add-process-plus[data-add-for="${processId}"]`);
+
                 if (addProcessCircle) {
-                    // Recalculate circle position based on the new box position
                     const newCenterX = newX + this.processWidth;
                     const newCenterY = newY + this.processHeight / 2;
                     addProcessCircle.setAttribute('cx', newCenterX);
                     addProcessCircle.setAttribute('cy', newCenterY);
                 }
-                
+
                 if (addProcessPlus) {
-                    // Recalculate plus position based on the new box position
                     const newCenterX = newX + this.processWidth;
                     const newCenterY = newY + this.processHeight / 2 + 1;
                     addProcessPlus.setAttribute('x', newCenterX);
                     addProcessPlus.setAttribute('y', newCenterY);
                 }
                 
+                // Update the flow connection point (blue dot) so it stays with the process
+                const flowPoint = this.svg.querySelector(`.flow-connection-point[data-connection-for="${processId}"]`);
+                if (flowPoint) {
+                    const fpX = newX + this.processWidth;
+                    const fpY = newY + this.processHeight / 2 + this.connectionPointVerticalOffset;
+                    flowPoint.setAttribute('cx', fpX);
+                    flowPoint.setAttribute('cy', fpY);
+                }
                 this.positions[processId] = { x: newX, y: newY };
                 this.redrawFlows();
 
@@ -499,6 +514,9 @@ export default class VSMVisualizer {
 
         // Redraw all flows
         this.drawFlows(this.currentFlows, this.positions);
+
+        // Make sure controls layer remains on top after flows are redrawn
+        this.bringControlsToFront();
 
         // Restore selection if there was one
         if (selectedFlowIds) {
@@ -641,12 +659,27 @@ export default class VSMVisualizer {
         
         this.drawProcesses(data.processes, this.positions);
         this.drawFlows(data.flows, this.positions);
+
+        // Ensure controls (add-buttons, connection dots) render above flows
+        this.bringControlsToFront();
         
         // Update all timing calculations after loading state
         this.updateTimingCalculations();
         
         // Fit the canvas to show all processes
         this.fitCanvasToContent();
+
+        // Ensure controls layer is moved to the end of the child list after render
+        // Use a micro task to ensure any subsequent synchronous appends finish first.
+        setTimeout(() => this.bringControlsToFront(), 0);
+    }
+
+    bringControlsToFront() {
+        const controlsLayer = this.svg.querySelector('#controls-layer');
+        if (controlsLayer) {
+            // Re-append to move it to the end of the SVG children so it renders on top
+            this.svg.appendChild(controlsLayer);
+        }
     }
 
     fitCanvasToContent() {
@@ -988,9 +1021,10 @@ export default class VSMVisualizer {
         circle.setAttribute('stroke', '#2c3e50');
         circle.setAttribute('stroke-width', '2');
         circle.setAttribute('class', 'add-process-circle');
-        circle.style.opacity = '0';
+        // Make add-process circle visible by default
+        circle.style.opacity = '0.95';
         circle.style.cursor = 'pointer';
-        circle.style.transition = 'opacity 0.3s';
+        circle.style.transition = 'opacity 0.15s';
 
         const plus = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         plus.setAttribute('x', pos.x + this.processWidth);
@@ -1000,19 +1034,21 @@ export default class VSMVisualizer {
         plus.setAttribute('font-size', '20');
         plus.setAttribute('font-weight', 'bold');
         plus.setAttribute('class', 'add-process-plus');
-        plus.style.opacity = '0';
+        // Make add-process plus visible by default
+        plus.style.opacity = '0.95';
         plus.style.cursor = 'pointer';
-        plus.style.transition = 'opacity 0.3s';
+        plus.style.transition = 'opacity 0.15s';
         plus.textContent = '+';
 
+        // Keep the add button visible at all times; hover handlers left for smoother transition
         group.addEventListener('mouseenter', () => {
             circle.style.opacity = '1';
             plus.style.opacity = '1';
         });
 
         group.addEventListener('mouseleave', () => {
-            circle.style.opacity = '0';
-            plus.style.opacity = '0';
+            circle.style.opacity = '0.95';
+            plus.style.opacity = '0.95';
         });
 
         const addNewProcess = () => {
@@ -1049,20 +1085,17 @@ export default class VSMVisualizer {
         };
 
         circle.addEventListener('click', addNewProcess);
+        circle.addEventListener('click', addNewProcess);
         plus.addEventListener('click', addNewProcess);
 
-        group.appendChild(circle);
-        group.appendChild(plus);
-    }
+        // Tag these so they can be found when they're moved to the controls layer
+        circle.setAttribute('data-add-for', processId);
+        plus.setAttribute('data-add-for', processId);
 
-    generateNewProcessId(baseId) {
-        let counter = 1;
-        let newId = `${baseId}_${counter}`;
-        while (this.currentProcesses[newId]) {
-            counter++;
-            newId = `${baseId}_${counter}`;
-        }
-        return newId;
+        // Append UI controls to the controls layer (top of SVG) so they render above flows
+        const controlsLayer = this.svg.querySelector('#controls-layer') || this.svg;
+        controlsLayer.appendChild(circle);
+        controlsLayer.appendChild(plus);
     }
 
     createNewProcess(baseId, newId) {
@@ -1219,8 +1252,9 @@ updateDSLRemoveFlow(fromId, toId) {
 
 addFlowConnectionPoint(group, processId, pos) {
     const connectionRadius = 8;
+    // Position the connection point below the add (+) button (aligned with its center)
     const x = pos.x + this.processWidth;
-    const y = pos.y + this.processHeight / 2;
+    const y = pos.y + this.processHeight / 2 + this.connectionPointVerticalOffset;
 
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     circle.setAttribute('class', 'flow-connection-point');
@@ -1228,26 +1262,63 @@ addFlowConnectionPoint(group, processId, pos) {
     circle.setAttribute('cy', y);
     circle.setAttribute('r', connectionRadius);
 
+    // Mark which process this connection point belongs to
+    circle.setAttribute('data-connection-for', processId);
+
+    // Append the connection point to the controls layer so it sits above flows
+    const controlsLayer = this.svg.querySelector('#controls-layer') || this.svg;
+    controlsLayer.appendChild(circle);
+
     circle.addEventListener('mousedown', (evt) => {
         evt.stopPropagation();
         this.startFlowDrag(evt, processId);
     });
 
-    group.appendChild(circle);
+    // Ensure the connection point is visible and interactive by default.
+    // CSS previously hid it (opacity:0) until hover; make it visible inline
+    // so users can always see/click it. Also ensure pointer events are enabled.
+    circle.style.opacity = '0.95';
+    circle.style.pointerEvents = 'auto';
+    circle.style.cursor = 'pointer';
+
+    // Debug: log creation to help diagnose missing-dot issues
+    try {
+        console.debug('addFlowConnectionPoint: created for', processId, 'at', x, y);
+    } catch (e) {
+        // ignore console errors in constrained environments
+    }
+
+    // Keep the group hover handlers intact (they still reference the circle element)
+    // but the actual DOM node now lives in the top-level controls layer so it renders above flows.
 }
 
 startFlowDrag(evt, fromProcessId) {
     this.isDraggingFlow = true;
 
-    const pt = this.svg.createSVGPoint();
-    pt.x = evt.clientX;
-    pt.y = evt.clientY;
-    const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+    // Prefer the actual connection point coordinates if available
+    let startX = null, startY = null;
+    if (evt && evt.target && evt.target.classList && evt.target.classList.contains('flow-connection-point')) {
+        const cx = parseFloat(evt.target.getAttribute('cx'));
+        const cy = parseFloat(evt.target.getAttribute('cy'));
+        if (!isNaN(cx) && !isNaN(cy)) {
+            startX = cx;
+            startY = cy;
+        }
+    }
+
+    if (startX === null || startY === null) {
+        const pt = this.svg.createSVGPoint();
+        pt.x = evt.clientX;
+        pt.y = evt.clientY;
+        const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+        startX = svgP.x;
+        startY = svgP.y;
+    }
 
     this.flowDragStart = {
         processId: fromProcessId,
-        x: svgP.x,
-        y: svgP.y
+        x: startX,
+        y: startY
     };
 
     // Create temporary line
@@ -1306,10 +1377,18 @@ endFlowDrag(evt) {
 }
 
 getProcessAtPoint(x, y) {
-    for (const [processId, pos] of Object.entries(this.positions)) {
-        if (x >= pos.x && x <= pos.x + this.processWidth &&
-            y >= pos.y && y <= pos.y + this.processHeight) {
-            return processId;
+    // Prefer DOM-based hit testing (reads rect attributes) to avoid stale coord issues
+    const rects = this.svg.querySelectorAll('rect[data-process-id]');
+    for (const rect of rects) {
+        const pid = rect.getAttribute('data-process-id');
+        const rx = parseFloat(rect.getAttribute('x'));
+        const ry = parseFloat(rect.getAttribute('y'));
+        const rw = parseFloat(rect.getAttribute('width'));
+        const rh = parseFloat(rect.getAttribute('height'));
+        if (!isNaN(rx) && !isNaN(ry) && !isNaN(rw) && !isNaN(rh)) {
+            if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) {
+                return pid;
+            }
         }
     }
     return null;
@@ -1372,11 +1451,49 @@ updateDSLWithNewFlow(flow) {
 }
 
 redrawFlows() {
+    // Save selected flow IDs if one is selected
+    const selectedFlowIds = this.selectedFlow ? {
+        from: this.selectedFlow.from,
+        to: this.selectedFlow.to
+    } : null;
+
+    // Clear selection reference before removing elements
+    if (this.selectedFlow) {
+        this.selectedFlow = null;
+    }
+
     // Remove all flow elements
     this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label').forEach(el => el.remove());
 
     // Redraw all flows
     this.drawFlows(this.currentFlows, this.positions);
+
+    // Restore selection if there was one
+    if (selectedFlowIds) {
+        const flowElement = this.svg.querySelector(
+            `path[data-flow-from="${selectedFlowIds.from}"][data-flow-to="${selectedFlowIds.to}"]`
+        );
+        if (flowElement) {
+            const flow = this.currentFlows.find(
+                f => f.from === selectedFlowIds.from && f.to === selectedFlowIds.to
+            );
+            if (flow) {
+                this.selectedFlow = {
+                    from: flow.from,
+                    to: flow.to,
+                    element: flowElement
+                };
+                flowElement.classList.add('selected');
+            }
+        }
+    }
+
+    // Make sure controls layer remains on top after flows are redrawn
+    this.bringControlsToFront();
+
+    // Also schedule a microtask to re-assert top layering in case other
+    // synchronous code appends elements after this method runs.
+    setTimeout(() => this.bringControlsToFront(), 0);
 }
 
 makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
