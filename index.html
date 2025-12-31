@@ -92,21 +92,73 @@ flow from photography to assembly {
         </div>
 
         <div class="totals-strip">
-            <div class="total-item">
+            <div class="total-item clickable" id="leadTimeItem">
                 <div class="total-label">Total Lead Time</div>
                 <div class="total-value" id="totalLeadTime">-</div>
             </div>
-            <div class="total-item">
+            <div class="total-item clickable" id="waitTimeItem">
                 <div class="total-label">Total Wait Time</div>
                 <div class="total-value" id="totalWaitTime">-</div>
             </div>
-            <div class="total-item">
+            <div class="total-item clickable" id="processTimeItem">
                 <div class="total-label">Total Process Time</div>
                 <div class="total-value" id="totalProcessTime">-</div>
             </div>
-            <div class="total-item">
+            <div class="total-item clickable" id="criticalPathItem">
                 <div class="total-label">Critical Path</div>
                 <div class="critical-path" id="criticalPath">-</div>
+            </div>
+        </div>
+
+        <!-- Wait Time Breakdown Modal -->
+        <div id="waitTimeModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Total Wait Time Breakdown</h3>
+                    <span class="modal-close" data-modal="waitTimeModal">&times;</span>
+                </div>
+                <div class="modal-body" id="waitTimeBreakdown">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Lead Time Breakdown Modal -->
+        <div id="leadTimeModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Total Lead Time Breakdown</h3>
+                    <span class="modal-close" data-modal="leadTimeModal">&times;</span>
+                </div>
+                <div class="modal-body" id="leadTimeBreakdown">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Process Time Breakdown Modal -->
+        <div id="processTimeModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Total Process Time Breakdown</h3>
+                    <span class="modal-close" data-modal="processTimeModal">&times;</span>
+                </div>
+                <div class="modal-body" id="processTimeBreakdown">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Critical Path Breakdown Modal -->
+        <div id="criticalPathModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Critical Path Breakdown</h3>
+                    <span class="modal-close" data-modal="criticalPathModal">&times;</span>
+                </div>
+                <div class="modal-body" id="criticalPathBreakdown">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
             </div>
         </div>
     </div>
@@ -167,6 +219,13 @@ flow from photography to assembly {
             // Add button click handlers
             document.querySelector('[data-action="clear"]').addEventListener('click', clearVSM);
             document.querySelector('[data-action="add"]').addEventListener('click', addNewProcess);
+
+            // Setup all breakdown modals
+            setupWaitTimeModal();
+            setupLeadTimeModal();
+            setupProcessTimeModal();
+            setupCriticalPathModal();
+            setupModalCloseHandlers();
         }
 
         function parseAndVisualize() {
@@ -228,6 +287,366 @@ flow from photography to assembly {
                 infoFlows: visualizer.currentInfoFlows,
                 positions: visualizer.positions
             });
+        }
+
+        function setupWaitTimeModal() {
+            const modal = document.getElementById('waitTimeModal');
+            const waitTimeItem = document.getElementById('waitTimeItem');
+
+            // Open modal on click
+            waitTimeItem.addEventListener('click', () => {
+                showWaitTimeBreakdown();
+                modal.style.display = 'block';
+            });
+        }
+
+        function setupLeadTimeModal() {
+            const modal = document.getElementById('leadTimeModal');
+            const leadTimeItem = document.getElementById('leadTimeItem');
+
+            // Open modal on click
+            leadTimeItem.addEventListener('click', () => {
+                showLeadTimeBreakdown();
+                modal.style.display = 'block';
+            });
+        }
+
+        function setupProcessTimeModal() {
+            const modal = document.getElementById('processTimeModal');
+            const processTimeItem = document.getElementById('processTimeItem');
+
+            // Open modal on click
+            processTimeItem.addEventListener('click', () => {
+                showProcessTimeBreakdown();
+                modal.style.display = 'block';
+            });
+        }
+
+        function setupCriticalPathModal() {
+            const modal = document.getElementById('criticalPathModal');
+            const criticalPathItem = document.getElementById('criticalPathItem');
+
+            // Open modal on click
+            criticalPathItem.addEventListener('click', () => {
+                showCriticalPathBreakdown();
+                modal.style.display = 'block';
+            });
+        }
+
+        // Generic modal close handlers
+        function setupModalCloseHandlers() {
+            // Close modal on X button click
+            document.querySelectorAll('.modal-close').forEach(closeBtn => {
+                closeBtn.addEventListener('click', (e) => {
+                    const modalId = e.target.getAttribute('data-modal');
+                    const modal = document.getElementById(modalId);
+                    if (modal) {
+                        modal.style.display = 'none';
+                    }
+                });
+            });
+
+            // Close modal on outside click
+            window.addEventListener('click', (event) => {
+                if (event.target.classList.contains('modal')) {
+                    event.target.style.display = 'none';
+                }
+            });
+
+            // Close all modals on Escape key
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') {
+                    document.querySelectorAll('.modal').forEach(modal => {
+                        if (modal.style.display === 'block') {
+                            modal.style.display = 'none';
+                        }
+                    });
+                }
+            });
+        }
+
+        function showWaitTimeBreakdown() {
+            const breakdownDiv = document.getElementById('waitTimeBreakdown');
+
+            // Calculate wait times
+            const processWaitTimes = [];
+            let totalProcessWT = 0;
+
+            Object.entries(visualizer.currentProcesses).forEach(([processId, process]) => {
+                const wtValue = visualizer.convertTimeToStandardUnit(process.attributes.wait_time);
+                if (wtValue > 0) {
+                    processWaitTimes.push({
+                        name: process.attributes.name || processId,
+                        value: process.attributes.wait_time,
+                        numericValue: wtValue
+                    });
+                    totalProcessWT += wtValue;
+                }
+            });
+
+            const flowWaitTimes = [];
+            let totalFlowWT = 0;
+
+            visualizer.currentFlows.forEach(flow => {
+                const wtValue = visualizer.convertTimeToStandardUnit(flow.wait_time);
+                if (wtValue > 0) {
+                    const fromName = visualizer.currentProcesses[flow.from]?.attributes?.name || flow.from;
+                    const toName = visualizer.currentProcesses[flow.to]?.attributes?.name || flow.to;
+                    flowWaitTimes.push({
+                        name: `${fromName} → ${toName}`,
+                        value: flow.wait_time,
+                        numericValue: wtValue
+                    });
+                    totalFlowWT += wtValue;
+                }
+            });
+
+            const totalWT = totalProcessWT + totalFlowWT;
+
+            // Build HTML
+            let html = '';
+
+            // Process Wait Times section
+            if (processWaitTimes.length > 0) {
+                html += '<div class="breakdown-section">';
+                html += '<h4>Process Wait Times</h4>';
+                processWaitTimes.forEach(item => {
+                    html += `<div class="breakdown-item">
+                        <div class="breakdown-name">${item.name}</div>
+                        <div class="breakdown-value">${item.value}</div>
+                    </div>`;
+                });
+                html += `<div class="breakdown-item" style="font-weight: bold; color: #3498db;">
+                    <div class="breakdown-name">Subtotal</div>
+                    <div class="breakdown-value">${totalProcessWT.toFixed(1)}d</div>
+                </div>`;
+                html += '</div>';
+            }
+
+            // Flow Wait Times section
+            if (flowWaitTimes.length > 0) {
+                html += '<div class="breakdown-section">';
+                html += '<h4>Flow Wait Times (Inter-Process)</h4>';
+                flowWaitTimes.forEach(item => {
+                    html += `<div class="breakdown-item">
+                        <div class="breakdown-name">${item.name}</div>
+                        <div class="breakdown-value">${item.value}</div>
+                    </div>`;
+                });
+                html += `<div class="breakdown-item" style="font-weight: bold; color: #3498db;">
+                    <div class="breakdown-name">Subtotal</div>
+                    <div class="breakdown-value">${totalFlowWT.toFixed(1)}d</div>
+                </div>`;
+                html += '</div>';
+            }
+
+            // Total section
+            html += '<div class="breakdown-total">';
+            html += '<div class="breakdown-name">Total Wait Time</div>';
+            html += `<div class="breakdown-value">${totalWT.toFixed(1)}d</div>`;
+            html += '</div>';
+
+            // Show formula
+            html += '<div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em; color: #7f8c8d;">';
+            html += '<strong>Formula:</strong> Total Wait Time = Sum of Process Wait Times + Sum of Flow Wait Times';
+            html += '</div>';
+
+            breakdownDiv.innerHTML = html;
+        }
+
+        function showLeadTimeBreakdown() {
+            const breakdownDiv = document.getElementById('leadTimeBreakdown');
+
+            if (!visualizer.criticalPathData || !visualizer.criticalPathData.path) {
+                breakdownDiv.innerHTML = '<p style="color: #7f8c8d;">No critical path data available.</p>';
+                return;
+            }
+
+            const criticalPath = visualizer.criticalPathData.path;
+            const criticalPathTime = visualizer.criticalPathData.time;
+
+            let html = '';
+
+            // Critical Path Sequence section
+            html += '<div class="breakdown-section">';
+            html += '<h4>Critical Path Sequence</h4>';
+            html += '<p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 10px;">Process Time (PT) + Wait Time (WT) for each process along the critical path</p>';
+
+            let runningTotal = 0;
+
+            criticalPath.forEach((processId, index) => {
+                const process = visualizer.currentProcesses[processId];
+                if (!process) return;
+
+                const processName = process.attributes.name || processId;
+                const pt = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                const wt = visualizer.convertTimeToStandardUnit(process.attributes.wait_time);
+                const cycleTime = pt + wt;
+
+                html += `<div class="breakdown-item">
+                    <div class="breakdown-name">${index + 1}. ${processName}</div>
+                    <div class="breakdown-value">${process.attributes.process_time} PT + ${process.attributes.wait_time} WT = ${cycleTime.toFixed(4)}d</div>
+                </div>`;
+
+                runningTotal += cycleTime;
+
+                // Add flow wait time if not the last process
+                if (index < criticalPath.length - 1) {
+                    const nextProcessId = criticalPath[index + 1];
+                    const flow = visualizer.currentFlows.find(f => f.from === processId && f.to === nextProcessId);
+                    if (flow) {
+                        const flowWT = visualizer.convertTimeToStandardUnit(flow.wait_time);
+                        html += `<div class="breakdown-item" style="padding-left: 20px; color: #7f8c8d;">
+                            <div class="breakdown-name">↓ Flow Wait Time</div>
+                            <div class="breakdown-value">${flow.wait_time}</div>
+                        </div>`;
+                        runningTotal += flowWT;
+                    }
+                }
+            });
+
+            html += '</div>';
+
+            // Total section
+            html += '<div class="breakdown-total">';
+            html += '<div class="breakdown-name">Total Lead Time (Critical Path)</div>';
+            html += `<div class="breakdown-value">${criticalPathTime.toFixed(4)}d</div>`;
+            html += '</div>';
+
+            // Show formula
+            html += '<div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em; color: #7f8c8d;">';
+            html += '<strong>Formula:</strong> Total Lead Time = Critical Path Time<br>';
+            html += 'Critical Path = Longest path from start to end, considering Process Time, Process Wait Time, and Flow Wait Times';
+            html += '</div>';
+
+            breakdownDiv.innerHTML = html;
+        }
+
+        function showProcessTimeBreakdown() {
+            const breakdownDiv = document.getElementById('processTimeBreakdown');
+
+            const processTimes = [];
+            let totalPT = 0;
+
+            Object.entries(visualizer.currentProcesses).forEach(([processId, process]) => {
+                const ptValue = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                processTimes.push({
+                    name: process.attributes.name || processId,
+                    value: process.attributes.process_time,
+                    numericValue: ptValue
+                });
+                totalPT += ptValue;
+            });
+
+            // Sort by numeric value (descending)
+            processTimes.sort((a, b) => b.numericValue - a.numericValue);
+
+            let html = '';
+
+            // Process Times section
+            html += '<div class="breakdown-section">';
+            html += '<h4>Process Times</h4>';
+            html += '<p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 10px;">Time spent actively working on each process</p>';
+            processTimes.forEach(item => {
+                html += `<div class="breakdown-item">
+                    <div class="breakdown-name">${item.name}</div>
+                    <div class="breakdown-value">${item.value}</div>
+                </div>`;
+            });
+            html += '</div>';
+
+            // Total section
+            html += '<div class="breakdown-total">';
+            html += '<div class="breakdown-name">Total Process Time</div>';
+            html += `<div class="breakdown-value">${totalPT.toFixed(4)}d</div>`;
+            html += '</div>';
+
+            // Show formula
+            html += '<div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em; color: #7f8c8d;">';
+            html += '<strong>Formula:</strong> Total Process Time = Sum of all Process Times<br>';
+            html += '<strong>Note:</strong> This is the total value-add time across all processes.';
+            html += '</div>';
+
+            breakdownDiv.innerHTML = html;
+        }
+
+        function showCriticalPathBreakdown() {
+            const breakdownDiv = document.getElementById('criticalPathBreakdown');
+
+            if (!visualizer.criticalPathData || !visualizer.criticalPathData.path) {
+                breakdownDiv.innerHTML = '<p style="color: #7f8c8d;">No critical path data available.</p>';
+                return;
+            }
+
+            const criticalPath = visualizer.criticalPathData.path;
+            const criticalPathTime = visualizer.criticalPathData.time;
+
+            let html = '';
+
+            // Critical Path Visualization
+            html += '<div class="breakdown-section">';
+            html += '<h4>Critical Path Details</h4>';
+            html += '<p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 10px;">The longest path through the value stream, determining the minimum lead time</p>';
+
+            // Process sequence
+            html += '<div style="padding: 15px; background: #fff3cd; border-left: 4px solid #e67e22; margin-bottom: 15px;">';
+            html += '<strong style="color: #e67e22;">Critical Path Sequence:</strong><br>';
+            const pathNames = criticalPath.map(processId => {
+                const process = visualizer.currentProcesses[processId];
+                return process ? (process.attributes.name || processId) : processId;
+            });
+            html += '<span style="color: #2c3e50; font-family: monospace;">' + pathNames.join(' → ') + '</span>';
+            html += '</div>';
+
+            // Detailed breakdown
+            let runningTotal = 0;
+
+            criticalPath.forEach((processId, index) => {
+                const process = visualizer.currentProcesses[processId];
+                if (!process) return;
+
+                const processName = process.attributes.name || processId;
+                const pt = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                const wt = visualizer.convertTimeToStandardUnit(process.attributes.wait_time);
+                const cycleTime = pt + wt;
+
+                html += `<div class="breakdown-item">
+                    <div class="breakdown-name">${index + 1}. ${processName} (CT)</div>
+                    <div class="breakdown-value">${cycleTime.toFixed(4)}d</div>
+                </div>`;
+
+                runningTotal += cycleTime;
+
+                // Add flow wait time if not the last process
+                if (index < criticalPath.length - 1) {
+                    const nextProcessId = criticalPath[index + 1];
+                    const flow = visualizer.currentFlows.find(f => f.from === processId && f.to === nextProcessId);
+                    if (flow) {
+                        const flowWT = visualizer.convertTimeToStandardUnit(flow.wait_time);
+                        html += `<div class="breakdown-item" style="padding-left: 20px; color: #7f8c8d;">
+                            <div class="breakdown-name">   + Flow WT</div>
+                            <div class="breakdown-value">${flowWT.toFixed(4)}d</div>
+                        </div>`;
+                        runningTotal += flowWT;
+                    }
+                }
+            });
+
+            html += '</div>';
+
+            // Total section
+            html += '<div class="breakdown-total">';
+            html += '<div class="breakdown-name">Critical Path Time</div>';
+            html += `<div class="breakdown-value">${criticalPathTime.toFixed(4)}d</div>`;
+            html += '</div>';
+
+            // Show formula
+            html += '<div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; font-size: 0.9em; color: #7f8c8d;">';
+            html += '<strong>Formula:</strong> Critical Path = Sum of (Cycle Times + Flow Wait Times) along the longest path<br>';
+            html += '<strong>Where:</strong> Cycle Time (CT) = Process Time (PT) + Process Wait Time (WT)';
+            html += '</div>';
+
+            breakdownDiv.innerHTML = html;
         }
 
         // Make functions globally available
