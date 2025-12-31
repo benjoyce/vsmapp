@@ -183,13 +183,14 @@ body {
 }
 
 .process-box.critical {
-    stroke: #e74c3c;
+    stroke: #27ae60;
     stroke-width: 3;
 }
 
 .process-text {
     text-anchor: middle;
     font-weight: bold;
+    font-size: 12px; /* match process-details font size */
 }
 
 .process-text.editable:hover {
@@ -221,7 +222,7 @@ body {
 }
 
 .flow-line.critical {
-    stroke: #e74c3c;
+    stroke: #27ae60;
     stroke-width: 3;
 }
 
@@ -253,16 +254,21 @@ body {
     fill: #7f8c8d;
 }
 
-.flow-connection-point {
-    fill: #3498db;
-    stroke: white;
+.flow-connection-point circle {
+    /* Styled to match add-process button (fully opaque white) */
+    fill: white;
+    stroke: #2c3e50;
     stroke-width: 2;
-    opacity: 0;
-    transition: opacity 0.3s;
 }
 
-.flow-connection-point:hover {
-    opacity: 1;
+.flow-connection-point text {
+    fill: #2c3e50;
+    font-weight: bold;
+    pointer-events: none; /* let the group handle events */
+}
+
+.flow-connection-point {
+    opacity: 1; /* fully opaque */
 }
 
 .temp-flow-line {

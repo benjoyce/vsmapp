@@ -32,6 +32,44 @@ export default class VSMVisualizer {
         this.setupFlowDeletion();
     }
 
+    drawFlows(flows, positions) {
+        flows.forEach(flow => {
+            const startPos = positions[flow.from];
+            const endPos = positions[flow.to];
+            if (!startPos || !endPos) return;
+
+            const { path, labelPosition } = this.calculateFlowPath(startPos, endPos);
+            const flowLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            flowLine.setAttribute('d', path);
+            flowLine.setAttribute('class', `flow-line${
+                this.criticalPathData?.flows && this.criticalPathData.flows.has(`${flow.from}-${flow.to}`) ? ' critical' : ''
+            }`);
+
+            // Add data attributes to identify the flow
+            flowLine.setAttribute('data-flow-from', flow.from);
+            flowLine.setAttribute('data-flow-to', flow.to);
+
+            // Add click handler for flow selection
+            flowLine.addEventListener('click', (evt) => {
+                this.selectFlow(flow, flowLine, evt);
+            });
+
+            this.svg.appendChild(flowLine);
+
+            // Add wait time label
+            if (flow.wait_time) {
+                const waitLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                waitLabel.setAttribute('x', labelPosition.x);
+                waitLabel.setAttribute('y', labelPosition.y);
+                waitLabel.setAttribute('class', 'wait-time-label');
+                waitLabel.setAttribute('text-anchor', 'middle');
+                waitLabel.textContent = `Wait: ${flow.wait_time}`;
+                this.makeWaitTimeEditable(waitLabel, flow);
+                this.svg.appendChild(waitLabel);
+            }
+        });
+    }
+
     setupSVG() {
         // Clear existing content
         while (this.svg.firstChild) {
@@ -50,8 +88,11 @@ export default class VSMVisualizer {
         
         const polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
         polygon.setAttribute('points', '0 0, 10 3.5, 0 7');
-        polygon.setAttribute('fill', '#2c3e50');
-        
+        // Use context-stroke so the arrowhead inherits the stroke color of the path
+        // (makes arrowheads match critical/normal flow colors)
+        polygon.setAttribute('fill', 'context-stroke');
+        polygon.setAttribute('stroke', 'none');
+
         marker.appendChild(polygon);
         defs.appendChild(marker);
         this.svg.appendChild(defs);
@@ -276,49 +317,10 @@ export default class VSMVisualizer {
             // Add plus symbol for adding new processes
             this.addPlusSymbol(group, processId, pos);
 
-            // Add flow connection point
+            // Add flow connection point (created by helper)
             this.addFlowConnectionPoint(group, processId, pos);
-
+            // Append the process group to the SVG canvas
             this.svg.appendChild(group);
-        });
-    }
-
-    drawFlows(flows, positions) {
-        flows.forEach(flow => {
-            const startPos = positions[flow.from];
-            const endPos = positions[flow.to];
-            
-            if (!startPos || !endPos) return;
-
-            const { path, labelPosition } = this.calculateFlowPath(startPos, endPos);
-            const flowLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            flowLine.setAttribute('d', path);
-            flowLine.setAttribute('class', `flow-line${
-                this.criticalPathData?.flows.has(`${flow.from}-${flow.to}`) ? ' critical' : ''
-            }`);
-
-            // Add data attributes to identify the flow
-            flowLine.setAttribute('data-flow-from', flow.from);
-            flowLine.setAttribute('data-flow-to', flow.to);
-
-            // Add click handler for flow selection
-            flowLine.addEventListener('click', (evt) => {
-                this.selectFlow(flow, flowLine, evt);
-            });
-
-            this.svg.appendChild(flowLine);
-
-            // Add wait time label
-            if (flow.wait_time) {
-                const waitLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-                waitLabel.setAttribute('x', labelPosition.x);
-                waitLabel.setAttribute('y', labelPosition.y);
-                waitLabel.setAttribute('class', 'wait-time-label');
-                waitLabel.setAttribute('text-anchor', 'middle');
-                waitLabel.textContent = `Wait: ${flow.wait_time}`;
-                this.makeWaitTimeEditable(waitLabel, flow);
-                this.svg.appendChild(waitLabel);
-            }
         });
     }
 
@@ -425,26 +427,52 @@ export default class VSMVisualizer {
                 const addProcessPlus = this.svg.querySelector(`.add-process-plus[data-add-for="${processId}"]`);
 
                 if (addProcessCircle) {
+                    // Recompute add-process center so it remains below the connection control
+                    const connectionRadius = 12;
+                    const connectionGap = 2;
+                    const addRadius = 12;
+                    const gapBetweenControls = 5;
+
                     const newCenterX = newX + this.processWidth;
-                    const newCenterY = newY + this.processHeight / 2;
+                    // connection center y
+                    const connCenterY = newY + this.processHeight / 2 - connectionRadius - connectionGap;
+                    const newCenterY = connCenterY + connectionRadius + gapBetweenControls + addRadius;
                     addProcessCircle.setAttribute('cx', newCenterX);
                     addProcessCircle.setAttribute('cy', newCenterY);
                 }
 
                 if (addProcessPlus) {
                     const newCenterX = newX + this.processWidth;
-                    const newCenterY = newY + this.processHeight / 2 + 1;
+                    // Keep text anchored to the circle center
+                    const connectionRadius = 12;
+                    const connectionGap = 2;
+                    const addRadius = 12;
+                    const gapBetweenControls = 5;
+                    const connCenterY = newY + this.processHeight / 2 - connectionRadius - connectionGap;
+                    const newCenterY = connCenterY + connectionRadius + gapBetweenControls + addRadius + 1;
                     addProcessPlus.setAttribute('x', newCenterX);
                     addProcessPlus.setAttribute('y', newCenterY);
                 }
                 
-                // Update the flow connection point (blue dot) so it stays with the process
+                // Update the flow connection point so it stays with the process
                 const flowPoint = this.svg.querySelector(`.flow-connection-point[data-connection-for="${processId}"]`);
                 if (flowPoint) {
                     const fpX = newX + this.processWidth;
-                    const fpY = newY + this.processHeight / 2 + this.connectionPointVerticalOffset;
-                    flowPoint.setAttribute('cx', fpX);
-                    flowPoint.setAttribute('cy', fpY);
+                    // compute fpY so bottom of circle sits just above process midline
+                    const fpCircleElem = flowPoint.querySelector('circle');
+                    const connRadius = fpCircleElem ? parseFloat(fpCircleElem.getAttribute('r')) || 12 : 12;
+                    const gap = 2;
+                    const fpY = newY + this.processHeight / 2 - connRadius - gap;
+                    const fpCircle = flowPoint.querySelector('circle');
+                    const fpText = flowPoint.querySelector('text');
+                    if (fpCircle) {
+                        fpCircle.setAttribute('cx', fpX);
+                        fpCircle.setAttribute('cy', fpY);
+                    }
+                    if (fpText) {
+                        fpText.setAttribute('x', fpX);
+                        fpText.setAttribute('y', fpY + 1);
+                    }
                 }
                 this.positions[processId] = { x: newX, y: newY };
                 this.redrawFlows();
@@ -1013,10 +1041,23 @@ export default class VSMVisualizer {
     // Add these new methods to the VSMVisualizer class
 
     addPlusSymbol(group, processId, pos) {
+        // Compute positions so the add-circle sits directly under the
+        // flow connection circle with a 5px gap between them.
+        const connectionRadius = 12;
+        const connectionGap = 2; // same gap used in addFlowConnectionPoint
+        const addRadius = 12;
+        const gapBetweenControls = 5; // requested 5px gap between controls
+
+        const addCx = pos.x + this.processWidth;
+        // connection center = midY - connectionRadius - connectionGap
+        const connCenterY = pos.y + this.processHeight / 2 - connectionRadius - connectionGap;
+        // add center sits below the connection circle: connCenterY + connectionRadius + gapBetweenControls + addRadius
+        const addCy = connCenterY + connectionRadius + gapBetweenControls + addRadius;
+
         const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', pos.x + this.processWidth);
-        circle.setAttribute('cy', pos.y + this.processHeight / 2);
-        circle.setAttribute('r', '12');
+        circle.setAttribute('cx', addCx);
+        circle.setAttribute('cy', addCy);
+        circle.setAttribute('r', String(addRadius));
         circle.setAttribute('fill', 'white');
         circle.setAttribute('stroke', '#2c3e50');
         circle.setAttribute('stroke-width', '2');
@@ -1027,8 +1068,8 @@ export default class VSMVisualizer {
         circle.style.transition = 'opacity 0.15s';
 
         const plus = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        plus.setAttribute('x', pos.x + this.processWidth);
-        plus.setAttribute('y', pos.y + this.processHeight / 2 + 1);
+        plus.setAttribute('x', addCx);
+        plus.setAttribute('y', addCy + 1);
         plus.setAttribute('text-anchor', 'middle');
         plus.setAttribute('dominant-baseline', 'middle');
         plus.setAttribute('font-size', '20');
@@ -1251,45 +1292,56 @@ updateDSLRemoveFlow(fromId, toId) {
 }
 
 addFlowConnectionPoint(group, processId, pos) {
-    const connectionRadius = 8;
-    // Position the connection point below the add (+) button (aligned with its center)
+    const connectionRadius = 12;
+    // Position the connection point so the bottom of the circle sits just above
+    // the vertical middle of the process box. That means centerY = midY - r - gap.
+    const gap = 2; // px spacing between circle bottom and process midline
     const x = pos.x + this.processWidth;
-    const y = pos.y + this.processHeight / 2 + this.connectionPointVerticalOffset;
+    const y = pos.y + this.processHeight / 2 - connectionRadius - gap;
 
+    // Create a group for the connection control so it can contain a circle + symbol
+    const connGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    connGroup.setAttribute('class', 'flow-connection-point');
+    connGroup.setAttribute('data-connection-for', processId);
+
+    // Circle (styled like the add-process button)
     const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('class', 'flow-connection-point');
     circle.setAttribute('cx', x);
     circle.setAttribute('cy', y);
     circle.setAttribute('r', connectionRadius);
+    circle.setAttribute('fill', 'white');
+    circle.setAttribute('stroke', '#2c3e50');
+    circle.setAttribute('stroke-width', '2');
+    circle.style.opacity = '0.95';
 
-    // Mark which process this connection point belongs to
-    circle.setAttribute('data-connection-for', processId);
+    // Infinity symbol instead of plus
+    const inf = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    inf.setAttribute('x', x);
+    inf.setAttribute('y', y + 1);
+    inf.setAttribute('text-anchor', 'middle');
+    inf.setAttribute('dominant-baseline', 'middle');
+    inf.setAttribute('font-size', '18');
+    inf.setAttribute('class', 'flow-connection-symbol');
+    inf.style.cursor = 'pointer';
+    inf.style.fill = '#2c3e50';
+    inf.textContent = '∞';
 
-    // Append the connection point to the controls layer so it sits above flows
-    const controlsLayer = this.svg.querySelector('#controls-layer') || this.svg;
-    controlsLayer.appendChild(circle);
+    connGroup.appendChild(circle);
+    connGroup.appendChild(inf);
 
-    circle.addEventListener('mousedown', (evt) => {
+    // Make everything interactive
+    connGroup.style.pointerEvents = 'auto';
+    connGroup.style.cursor = 'pointer';
+
+    // Start flow drag when clicking the control
+    connGroup.addEventListener('mousedown', (evt) => {
         evt.stopPropagation();
         this.startFlowDrag(evt, processId);
     });
 
-    // Ensure the connection point is visible and interactive by default.
-    // CSS previously hid it (opacity:0) until hover; make it visible inline
-    // so users can always see/click it. Also ensure pointer events are enabled.
-    circle.style.opacity = '0.95';
-    circle.style.pointerEvents = 'auto';
-    circle.style.cursor = 'pointer';
-
-    // Debug: log creation to help diagnose missing-dot issues
-    try {
-        console.debug('addFlowConnectionPoint: created for', processId, 'at', x, y);
-    } catch (e) {
-        // ignore console errors in constrained environments
-    }
-
-    // Keep the group hover handlers intact (they still reference the circle element)
-    // but the actual DOM node now lives in the top-level controls layer so it renders above flows.
+    // Append the connection point group to the controls layer so it sits above flows
+    const controlsLayer = this.svg.querySelector('#controls-layer') || this.svg;
+    controlsLayer.appendChild(connGroup);
 }
 
 startFlowDrag(evt, fromProcessId) {
@@ -1297,12 +1349,20 @@ startFlowDrag(evt, fromProcessId) {
 
     // Prefer the actual connection point coordinates if available
     let startX = null, startY = null;
-    if (evt && evt.target && evt.target.classList && evt.target.classList.contains('flow-connection-point')) {
-        const cx = parseFloat(evt.target.getAttribute('cx'));
-        const cy = parseFloat(evt.target.getAttribute('cy'));
-        if (!isNaN(cx) && !isNaN(cy)) {
-            startX = cx;
-            startY = cy;
+    if (evt && evt.target) {
+        // Try to find the closest flow-connection-point group (works if text or circle was clicked)
+        let el = null;
+        try { el = evt.target.closest('.flow-connection-point'); } catch (e) { el = null; }
+        if (el && el.classList && el.classList.contains('flow-connection-point')) {
+            const c = el.querySelector('circle');
+            if (c) {
+                const cx = parseFloat(c.getAttribute('cx'));
+                const cy = parseFloat(c.getAttribute('cy'));
+                if (!isNaN(cx) && !isNaN(cy)) {
+                    startX = cx;
+                    startY = cy;
+                }
+            }
         }
     }
 
@@ -1330,28 +1390,28 @@ startFlowDrag(evt, fromProcessId) {
     evt.preventDefault();
 }
 
-dragFlow(evt) {
-    if (!this.isDraggingFlow || !this.tempFlowLine) return;
+    dragFlow(evt) {
+        if (!this.isDraggingFlow || !this.tempFlowLine) return;
 
-    const pt = this.svg.createSVGPoint();
-    pt.x = evt.clientX;
-    pt.y = evt.clientY;
-    const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+        const pt = this.svg.createSVGPoint();
+        pt.x = evt.clientX;
+        pt.y = evt.clientY;
+        const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
 
-    // Draw line from start to current position
-    const path = `M ${this.flowDragStart.x} ${this.flowDragStart.y} L ${svgP.x} ${svgP.y}`;
-    this.tempFlowLine.setAttribute('d', path);
+        // Draw line from start to current position
+        const path = `M ${this.flowDragStart.x} ${this.flowDragStart.y} L ${svgP.x} ${svgP.y}`;
+        this.tempFlowLine.setAttribute('d', path);
 
-    // Check if over a valid target
-    const targetProcess = this.getProcessAtPoint(svgP.x, svgP.y);
-    if (targetProcess && this.canCreateFlow(this.flowDragStart.processId, targetProcess)) {
-        this.tempFlowLine.classList.add('valid');
-        this.tempFlowLine.classList.remove('invalid');
-    } else {
-        this.tempFlowLine.classList.add('invalid');
-        this.tempFlowLine.classList.remove('valid');
+        // Check if over a valid target
+        const targetProcess = this.getProcessAtPoint(svgP.x, svgP.y);
+        if (targetProcess && this.canCreateFlow(this.flowDragStart.processId, targetProcess)) {
+            this.tempFlowLine.classList.add('valid');
+            this.tempFlowLine.classList.remove('invalid');
+        } else {
+            this.tempFlowLine.classList.add('invalid');
+            this.tempFlowLine.classList.remove('valid');
+        }
     }
-}
 
 endFlowDrag(evt) {
     if (!this.isDraggingFlow) return;
