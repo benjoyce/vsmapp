@@ -18,7 +18,13 @@
                 <button class="editor-toggle" title="Toggle DSL Editor">⟩</button>
                 <div class="panel-header">
                     <h2 class="panel-title">DSL Editor</h2>
+                    <div class="filename-display" id="currentFilename">
+                        <span class="filename-label">File:</span>
+                        <span class="filename-text">Untitled.vsm</span>
+                    </div>
                     <div class="button-group">
+                        <button class="editor-button" data-action="save-file">Save File</button>
+                        <button class="editor-button" data-action="load-file">Load File</button>
                         <button class="editor-button" data-action="clear">New VSM</button>
                         <button class="editor-button" data-action="add">Add Process</button>
                         <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
@@ -79,6 +85,7 @@ flow from welding to assembly {
 flow from photography to assembly {
   wait_time: 2.1d
 }</textarea>
+                <input type="file" id="fileInput" accept=".vsm" style="display: none;">
             </div>
             <div class="pane-splitter" id="paneSplitter"></div>
             <div class="visualization-panel">
@@ -118,6 +125,44 @@ flow from photography to assembly {
         const parser = new VSMParser();
         let visualizer;
 
+        // Filename state management
+        let currentFilename = 'Untitled.vsm';
+        let isModified = false;
+
+        function updateFilenameDisplay() {
+            const filenameElement = document.querySelector('.filename-text');
+            if (filenameElement) {
+                filenameElement.textContent = currentFilename;
+                if (isModified) {
+                    filenameElement.classList.add('modified');
+                } else {
+                    filenameElement.classList.remove('modified');
+                }
+            }
+        }
+
+        function setFilename(name) {
+            currentFilename = name;
+            isModified = false;
+            updateFilenameDisplay();
+            // Store in localStorage for persistence
+            localStorage.setItem('vsmCurrentFilename', currentFilename);
+        }
+
+        function markAsModified() {
+            isModified = true;
+            updateFilenameDisplay();
+        }
+
+        // Load saved filename on initialization
+        function loadSavedFilename() {
+            const savedFilename = localStorage.getItem('vsmCurrentFilename');
+            if (savedFilename) {
+                currentFilename = savedFilename;
+            }
+            updateFilenameDisplay();
+        }
+
         function clearVSM() {
             // Clear the DSL editor
             document.getElementById('dslEditor').value = '';
@@ -141,6 +186,11 @@ flow from photography to assembly {
             document.getElementById('totalWaitTime').textContent = '0.0d';
             document.getElementById('totalProcessTime').textContent = '0.0d';
             document.getElementById('criticalPath').textContent = '0.0d';
+
+            // Reset filename
+            setFilename('Untitled.vsm');
+            // Clear localStorage filename
+            localStorage.removeItem('vsmCurrentFilename');
         }
 
         async function initializeVSM() {
@@ -167,6 +217,14 @@ flow from photography to assembly {
             // Add button click handlers
             document.querySelector('[data-action="clear"]').addEventListener('click', clearVSM);
             document.querySelector('[data-action="add"]').addEventListener('click', addNewProcess);
+            document.querySelector('[data-action="save-file"]').addEventListener('click', saveVSMToFile);
+            document.querySelector('[data-action="load-file"]').addEventListener('click', loadVSMFromFile);
+
+            // Track editor modifications
+            document.getElementById('dslEditor').addEventListener('input', markAsModified);
+
+            // Load saved filename on init
+            loadSavedFilename();
         }
 
         function parseAndVisualize() {
@@ -230,11 +288,117 @@ flow from photography to assembly {
             });
         }
 
+        function saveVSMToFile() {
+            try {
+                // Get current state from visualizer
+                const currentState = {
+                    processes: visualizer.currentProcesses,
+                    flows: visualizer.currentFlows,
+                    infoFlows: visualizer.currentInfoFlows,
+                    positions: visualizer.positions
+                };
+
+                // Serialize to DSL format
+                const dslContent = parser.serialize(currentState);
+
+                // Create blob and download
+                const blob = new Blob([dslContent], { type: 'text/plain;charset=utf-8' });
+                const url = URL.createObjectURL(blob);
+
+                // Create temporary download link
+                const downloadLink = document.createElement('a');
+                downloadLink.href = url;
+                downloadLink.download = currentFilename;
+
+                // Trigger download
+                document.body.appendChild(downloadLink);
+                downloadLink.click();
+                document.body.removeChild(downloadLink);
+
+                // Clean up
+                URL.revokeObjectURL(url);
+
+                // Mark as saved
+                isModified = false;
+                updateFilenameDisplay();
+
+                console.log('VSM saved to file:', currentFilename);
+            } catch (error) {
+                console.error('Error saving VSM file:', error);
+                alert('Error saving file: ' + error.message);
+            }
+        }
+
+        function loadVSMFromFile() {
+            const fileInput = document.getElementById('fileInput');
+
+            // Set up the file input handler
+            fileInput.onchange = function(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // Validate file extension
+                if (!file.name.endsWith('.vsm')) {
+                    alert('Invalid file type. Please select a .vsm file.');
+                    fileInput.value = '';
+                    return;
+                }
+
+                const reader = new FileReader();
+
+                reader.onload = function(e) {
+                    try {
+                        const dslContent = e.target.result;
+
+                        // Validate DSL content
+                        const parsedData = parser.parse(dslContent);
+
+                        // Basic validation: check if we have processes
+                        if (!parsedData.processes || Object.keys(parsedData.processes).length === 0) {
+                            throw new Error('Invalid VSM file: No processes found');
+                        }
+
+                        // Load into editor
+                        document.getElementById('dslEditor').value = dslContent;
+
+                        // Visualize the loaded data
+                        visualizer.visualize(parsedData);
+
+                        // Update filename
+                        setFilename(file.name);
+
+                        // Save to localStorage for auto-recovery
+                        visualizer.saveState();
+
+                        console.log('VSM loaded from file:', file.name);
+                    } catch (error) {
+                        console.error('Error loading VSM file:', error);
+                        alert('Error loading file: ' + error.message + '\n\nPlease check that the file is a valid VSM DSL file.');
+                    } finally {
+                        // Reset file input
+                        fileInput.value = '';
+                    }
+                };
+
+                reader.onerror = function() {
+                    alert('Error reading file. Please try again.');
+                    fileInput.value = '';
+                };
+
+                reader.readAsText(file);
+            };
+
+            // Trigger file selection dialog
+            fileInput.click();
+        }
+
         // Make functions globally available
         window.parser = parser;
         window.saveVSM = saveVSM;
         window.parseAndVisualize = parseAndVisualize;
         window.addNewProcess = addNewProcess;
+        window.saveVSMToFile = saveVSMToFile;
+        window.loadVSMFromFile = loadVSMFromFile;
 
         // Initialize pane splitter
         function initializePaneSplitter() {

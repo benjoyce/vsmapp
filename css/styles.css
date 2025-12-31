@@ -344,3 +344,29 @@ body {
     -ms-user-select: none;
     touch-action: none; /* Prevent touch gestures from triggering zoom */
 }
+
+.filename-display {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.85em;
+}
+
+.filename-label {
+    color: #7f8c8d;
+    font-weight: normal;
+}
+
+.filename-text {
+    color: #2c3e50;
+    font-weight: 600;
+    font-family: 'Courier New', monospace;
+}
+
+.filename-text.modified::after {
+    content: ' *';
+    color: #e74c3c;
+}
