@@ -418,6 +418,8 @@ body {
 .filename-text.modified::after {
     content: ' *';
     color: #e74c3c;
+}
+
 .total-item.clickable {
     cursor: pointer;
     padding: 8px;
