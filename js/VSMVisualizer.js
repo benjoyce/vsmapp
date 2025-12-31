@@ -14,9 +14,17 @@ export default class VSMVisualizer {
         this.zoomLevel = 1;
         this.minZoom = 0.1;
         this.maxZoom = 3;
+
+        // Flow interaction state
+        this.isDraggingFlow = false;
+        this.flowDragStart = null;
+        this.tempFlowLine = null;
+        this.selectedFlow = null;
+
         this.setupSVG();
         this.setupPanning();
         this.setupZoom();
+        this.setupFlowDeletion();
     }
 
     setupSVG() {
@@ -72,13 +80,16 @@ export default class VSMVisualizer {
             if (this.isPanning) {
                 const newX = this.panStart.x - e.clientX;
                 const newY = this.panStart.y - e.clientY;
-                
+
                 // Update viewBox
                 this.viewBox.x = newX;
                 this.viewBox.y = newY;
-                this.svg.setAttribute('viewBox', 
+                this.svg.setAttribute('viewBox',
                     `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`);
             }
+
+            // Handle flow dragging
+            this.dragFlow(e);
         });
 
         // Stop panning on mouse button release
@@ -87,6 +98,9 @@ export default class VSMVisualizer {
                 this.isPanning = false;
                 this.svg.style.cursor = 'default';
             }
+
+            // Handle flow drag end
+            this.endFlowDrag(e);
         });
 
         // Initialize viewBox
@@ -245,7 +259,10 @@ export default class VSMVisualizer {
 
             // Add plus symbol for adding new processes
             this.addPlusSymbol(group, processId, pos);
-            
+
+            // Add flow connection point
+            this.addFlowConnectionPoint(group, processId, pos);
+
             this.svg.appendChild(group);
         });
     }
@@ -263,6 +280,12 @@ export default class VSMVisualizer {
             flowLine.setAttribute('class', `flow-line${
                 this.criticalPathData?.flows.has(`${flow.from}-${flow.to}`) ? ' critical' : ''
             }`);
+
+            // Add click handler for flow selection
+            flowLine.addEventListener('click', (evt) => {
+                this.selectFlow(flow, flowLine, evt);
+            });
+
             this.svg.appendChild(flowLine);
 
             // Add wait time label
@@ -1048,6 +1071,250 @@ showCustomAlert(message, onClose) {
     
     // Focus the button
     button.focus();
+}
+
+// Flow interaction methods
+setupFlowDeletion() {
+    document.addEventListener('keydown', (evt) => {
+        if (evt.key === 'Delete' && this.selectedFlow) {
+            this.deleteSelectedFlow();
+        }
+    });
+
+    // Deselect flow when clicking on canvas background
+    this.svg.addEventListener('click', (evt) => {
+        if (evt.target === this.svg || evt.target.tagName === 'svg') {
+            this.deselectFlow();
+        }
+    });
+}
+
+selectFlow(flow, element, evt) {
+    evt.stopPropagation();
+
+    // Deselect previous flow
+    this.deselectFlow();
+
+    // Select this flow
+    this.selectedFlow = {
+        from: flow.from,
+        to: flow.to,
+        element: element
+    };
+    element.classList.add('selected');
+}
+
+deselectFlow() {
+    if (this.selectedFlow && this.selectedFlow.element) {
+        this.selectedFlow.element.classList.remove('selected');
+    }
+    this.selectedFlow = null;
+}
+
+deleteSelectedFlow() {
+    if (!this.selectedFlow) return;
+
+    const {from, to} = this.selectedFlow;
+
+    // Remove from currentFlows
+    const flowIndex = this.currentFlows.findIndex(f => f.from === from && f.to === to);
+    if (flowIndex !== -1) {
+        this.currentFlows.splice(flowIndex, 1);
+    }
+
+    // Update DSL
+    this.updateDSLRemoveFlow(from, to);
+
+    // Deselect
+    this.deselectFlow();
+
+    // Redraw
+    this.redrawFlows();
+
+    // Update calculations
+    this.updateTimingCalculations();
+
+    // Save state
+    this.saveState();
+}
+
+updateDSLRemoveFlow(fromId, toId) {
+    const editor = document.getElementById('dslEditor');
+    if (!editor) return;
+
+    let dslText = editor.value;
+
+    // Find and remove the flow block
+    const flowPattern = new RegExp(
+        `\\n*flow\\s+from\\s+${fromId}\\s+to\\s+${toId}\\s*\\{[^}]*\\}\\n*`,
+        'g'
+    );
+
+    dslText = dslText.replace(flowPattern, '\n');
+
+    editor.value = dslText;
+}
+
+addFlowConnectionPoint(group, processId, pos) {
+    const connectionRadius = 8;
+    const x = pos.x + this.processWidth;
+    const y = pos.y + this.processHeight / 2;
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('class', 'flow-connection-point');
+    circle.setAttribute('cx', x);
+    circle.setAttribute('cy', y);
+    circle.setAttribute('r', connectionRadius);
+
+    circle.addEventListener('mousedown', (evt) => {
+        evt.stopPropagation();
+        this.startFlowDrag(evt, processId);
+    });
+
+    group.appendChild(circle);
+}
+
+startFlowDrag(evt, fromProcessId) {
+    this.isDraggingFlow = true;
+
+    const pt = this.svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+
+    this.flowDragStart = {
+        processId: fromProcessId,
+        x: svgP.x,
+        y: svgP.y
+    };
+
+    // Create temporary line
+    this.tempFlowLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    this.tempFlowLine.setAttribute('class', 'temp-flow-line');
+    this.svg.appendChild(this.tempFlowLine);
+
+    // Prevent default dragging behavior
+    evt.preventDefault();
+}
+
+dragFlow(evt) {
+    if (!this.isDraggingFlow || !this.tempFlowLine) return;
+
+    const pt = this.svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+
+    // Draw line from start to current position
+    const path = `M ${this.flowDragStart.x} ${this.flowDragStart.y} L ${svgP.x} ${svgP.y}`;
+    this.tempFlowLine.setAttribute('d', path);
+
+    // Check if over a valid target
+    const targetProcess = this.getProcessAtPoint(svgP.x, svgP.y);
+    if (targetProcess && this.canCreateFlow(this.flowDragStart.processId, targetProcess)) {
+        this.tempFlowLine.classList.add('valid');
+        this.tempFlowLine.classList.remove('invalid');
+    } else {
+        this.tempFlowLine.classList.add('invalid');
+        this.tempFlowLine.classList.remove('valid');
+    }
+}
+
+endFlowDrag(evt) {
+    if (!this.isDraggingFlow) return;
+
+    const pt = this.svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+
+    // Check if over a valid target
+    const targetProcess = this.getProcessAtPoint(svgP.x, svgP.y);
+    if (targetProcess && this.canCreateFlow(this.flowDragStart.processId, targetProcess)) {
+        this.createFlow(this.flowDragStart.processId, targetProcess);
+    }
+
+    // Cleanup
+    if (this.tempFlowLine) {
+        this.svg.removeChild(this.tempFlowLine);
+        this.tempFlowLine = null;
+    }
+    this.isDraggingFlow = false;
+    this.flowDragStart = null;
+}
+
+getProcessAtPoint(x, y) {
+    for (const [processId, pos] of Object.entries(this.positions)) {
+        if (x >= pos.x && x <= pos.x + this.processWidth &&
+            y >= pos.y && y <= pos.y + this.processHeight) {
+            return processId;
+        }
+    }
+    return null;
+}
+
+canCreateFlow(fromId, toId) {
+    // No self-loops
+    if (fromId === toId) return false;
+
+    // No duplicate flows
+    const exists = this.currentFlows.some(f => f.from === fromId && f.to === toId);
+    return !exists;
+}
+
+createFlow(fromId, toId) {
+    const newFlow = {
+        from: fromId,
+        to: toId,
+        wait_time: '0d'
+    };
+
+    // Add to currentFlows
+    this.currentFlows.push(newFlow);
+
+    // Update DSL
+    this.updateDSLWithNewFlow(newFlow);
+
+    // Redraw
+    this.redrawFlows();
+
+    // Update calculations
+    this.updateTimingCalculations();
+
+    // Save state
+    this.saveState();
+}
+
+updateDSLWithNewFlow(flow) {
+    const editor = document.getElementById('dslEditor');
+    if (!editor) return;
+
+    let dslText = editor.value;
+
+    const flowBlock = `\nflow from ${flow.from} to ${flow.to} {
+  wait_time: ${flow.wait_time}
+}\n`;
+
+    // Find the positions block if it exists
+    const positionsIndex = dslText.indexOf('positions {');
+
+    if (positionsIndex !== -1) {
+        // Insert before positions block
+        dslText = dslText.substring(0, positionsIndex) + flowBlock + dslText.substring(positionsIndex);
+    } else {
+        // Append to end
+        dslText += flowBlock;
+    }
+
+    editor.value = dslText;
+}
+
+redrawFlows() {
+    // Remove all flow elements
+    this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label').forEach(el => el.remove());
+
+    // Redraw all flows
+    this.drawFlows(this.currentFlows, this.positions);
 }
 
 makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
