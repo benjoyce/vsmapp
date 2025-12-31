@@ -27,61 +27,103 @@
                         <button class="editor-button" data-action="clear">New VSM</button>
                     </div>
                 </div>
-                <textarea id="dslEditor" class="editor" spellcheck="false">process stamping {
-  stage_id: 1
-  name: "Sheet Metal Stamping"
-  owner: "Manufacturing Team A"
-  description: "High-pressure stamping of steel sheets"
-  wait_time: 3.2d
-  process_time: 40s
-  defect_rate: 2.5
+                <textarea id="dslEditor" class="editor" spellcheck="false">process process_1767166125801 {
+  stage_id: "1"
+  name: "Build"
+  owner: ""
+  description: "New process description"
+  wait_time: "2d"
+  process_time: "5d"
+  defect_rate: "0"
 }
 
-process welding {
-  stage_id: 2
-  name: "Spot Welding Assembly"
-  owner: "Welding Department"
-  description: "Robotic spot welding of stamped components"
-  wait_time: 1.8d
-  process_time: 55s
-  defect_rate: 1.2
+process process_1767166125801_1 {
+  stage_id: "2"
+  name: "Test"
+  owner: ""
+  description: "New process derived from process_1767166125801"
+  wait_time: "1d"
+  process_time: "10d"
+  defect_rate: "0"
 }
 
-process photography {
+process process_1767166125801_2 {
+  stage_id: "2"
+  name: "Create and Approve CR"
+  owner: ""
+  description: "New process derived from process_1767166125801"
+  wait_time: "20d"
+  process_time: "30m"
+  defect_rate: "0"
+}
+
+process process_1767166125801_1_1 {
+  stage_id: "3"
+  name: "New Deploy"
+  owner: ""
+  description: "New process derived from process_1767166125801_1"
+  wait_time: "0d"
+  process_time: "20m"
+  defect_rate: "0"
+}
+
+process process_1767166125801_1_2 {
   stage_id: 3
-  name: "Quality Photography"
-  owner: "QC Documentation Team"
-  description: "Digital photography for quality records"
-  wait_time: 1.2d
-  process_time: 25s
-  defect_rate: 0.5
+  name: "New Test"
+  owner: ""
+  description: "New process derived from process_1767166125801_1"
+  wait_time: "0d"
+  process_time: 200d
+  defect_rate: "0"
 }
 
-process assembly {
+process process_1767166125801_1_2_1 {
   stage_id: 4
-  name: "Final Door Assembly"
-  owner: "Assembly Line Team"
-  description: "Installation of hinges, handles, weather stripping"
-  wait_time: 2.5d
-  process_time: 85s
-  defect_rate: 3.1
+  name: "New New Test"
+  owner: ""
+  description: "New process derived from process_1767166125801_1_2"
+  wait_time: "0d"
+  process_time: "0s"
+  defect_rate: "0"
 }
 
-flow from stamping to welding {
+flow from process_1767166125801 to process_1767166125801_1 {
+  wait_time: 1d
+}
+
+flow from process_1767166125801 to process_1767166125801_2 {
   wait_time: 0.5d
 }
 
-flow from stamping to photography {
-  wait_time: 0.3d
+flow from process_1767166125801_1 to process_1767166125801_1_1 {
+  wait_time: 10m
 }
 
-flow from welding to assembly {
-  wait_time: 1.8d
+flow from process_1767166125801_2 to process_1767166125801_1_1 {
+  wait_time: 0d
 }
 
-flow from photography to assembly {
-  wait_time: 2.1d
-}</textarea>
+flow from process_1767166125801_1 to process_1767166125801_1_2 {
+  wait_time: 0.5d
+}
+
+flow from process_1767166125801_1_2 to process_1767166125801_1_2_1 {
+  wait_time: 0.5d
+}
+
+flow from process_1767166125801_1_1 to process_1767166125801_1_2_1 {
+  wait_time: 0d
+}
+
+positions {
+  process_1767166125801: 371, 290
+  process_1767166125801_1: 635, 289
+  process_1767166125801_2: 640, 465
+  process_1767166125801_1_1: 958, 406
+  process_1767166125801_1_2: 943, 212
+  process_1767166125801_1_2_1: 1255, 326
+}
+</textarea>
                 <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
                 <input type="file" id="fileInput" accept=".vsm" style="display: none;">
             </div>

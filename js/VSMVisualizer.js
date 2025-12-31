@@ -1344,6 +1344,20 @@ addFlowConnectionPoint(group, processId, pos) {
     controlsLayer.appendChild(connGroup);
 }
 
+    // Helper to generate a new unique process id based on a base id.
+    generateNewProcessId(baseId) {
+        if (!this.currentProcesses) return `${baseId}_1`;
+        let i = 1;
+        let candidate = `${baseId}_${i}`;
+        while (this.currentProcesses[candidate]) {
+            i += 1;
+            candidate = `${baseId}_${i}`;
+            // Safety cap to avoid infinite loops
+            if (i > 10000) break;
+        }
+        return candidate;
+    }
+
 startFlowDrag(evt, fromProcessId) {
     this.isDraggingFlow = true;
 
