@@ -208,6 +208,10 @@ export default class VSMVisualizer {
                 this.criticalPathData?.path.includes(processId) ? ' critical' : ''
             }`);
             rect.setAttribute('rx', '8');
+
+            // Add data attribute to identify the process
+            rect.setAttribute('data-process-id', processId);
+
             group.appendChild(rect);
 
             // Process name
@@ -280,6 +284,10 @@ export default class VSMVisualizer {
             flowLine.setAttribute('class', `flow-line${
                 this.criticalPathData?.flows.has(`${flow.from}-${flow.to}`) ? ' critical' : ''
             }`);
+
+            // Add data attributes to identify the flow
+            flowLine.setAttribute('data-flow-from', flow.from);
+            flowLine.setAttribute('data-flow-to', flow.to);
 
             // Add click handler for flow selection
             flowLine.addEventListener('click', (evt) => {
@@ -475,8 +483,43 @@ export default class VSMVisualizer {
     }
 
     redrawFlows() {
+        // Save selected flow IDs if one is selected
+        const selectedFlowIds = this.selectedFlow ? {
+            from: this.selectedFlow.from,
+            to: this.selectedFlow.to
+        } : null;
+
+        // Clear selection reference before removing elements
+        if (this.selectedFlow) {
+            this.selectedFlow = null;
+        }
+
+        // Remove all flow elements
         this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label').forEach(el => el.remove());
+
+        // Redraw all flows
         this.drawFlows(this.currentFlows, this.positions);
+
+        // Restore selection if there was one
+        if (selectedFlowIds) {
+            const flowElement = this.svg.querySelector(
+                `path[data-flow-from="${selectedFlowIds.from}"][data-flow-to="${selectedFlowIds.to}"]`
+            );
+            if (flowElement) {
+                const flow = this.currentFlows.find(
+                    f => f.from === selectedFlowIds.from && f.to === selectedFlowIds.to
+                );
+                if (flow) {
+                    // Restore selection without triggering the click event
+                    this.selectedFlow = {
+                        from: flow.from,
+                        to: flow.to,
+                        element: flowElement
+                    };
+                    flowElement.classList.add('selected');
+                }
+            }
+        }
     }
 
     calculateCriticalPath(processes, flows) {
@@ -513,7 +556,7 @@ export default class VSMVisualizer {
             const stack = [{
                 node: start,
                 path: [start],
-                time: graph[start].cycleTime + graph[start].waitTime
+                time: graph[start].cycleTime  // CT already includes PT + WT
             }];
             const paths = [];
 
@@ -531,7 +574,7 @@ export default class VSMVisualizer {
                     stack.push({
                         node: edge.to,
                         path: [...path, edge.to],
-                        time: time + edge.waitTime + graph[edge.to].cycleTime + graph[edge.to].waitTime
+                        time: time + edge.waitTime + graph[edge.to].cycleTime  // CT already includes PT + WT
                     });
                 }
             }
@@ -857,19 +900,37 @@ export default class VSMVisualizer {
    }
 
     // Add this new method to handle all time-based updates
+    updateCriticalPathStyling() {
+        // Update all process boxes
+        const processBoxes = this.svg.querySelectorAll('.process-box');
+        processBoxes.forEach(box => {
+            const processId = box.getAttribute('data-process-id');
+            if (processId) {
+                // Check if this process is on the critical path
+                const isOnCriticalPath = this.criticalPathData?.path.includes(processId);
+
+                // Update the class
+                if (isOnCriticalPath) {
+                    box.classList.add('critical');
+                } else {
+                    box.classList.remove('critical');
+                }
+            }
+        });
+    }
+
     updateTimingCalculations() {
         // Recalculate critical path
         this.criticalPathData = this.calculateCriticalPath(
-            this.currentProcesses, 
+            this.currentProcesses,
             this.currentFlows
         );
         
-        // Calculate overall Lead Time: sum of all CT + process WT + flow wait times
-        const totalCycleTime = Object.values(this.currentProcesses)
+        // Calculate total process time (sum of ALL process times, not cycle times)
+        const totalProcessTime = Object.values(this.currentProcesses)
             .reduce((sum, process) => {
                 const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
-                const wtTime = this.convertTimeToStandardUnit(process.attributes.wait_time);
-                return sum + ptTime + wtTime;  // CT = PT + WT
+                return sum + ptTime;
             }, 0);
 
         const totalProcessWaitTime = Object.values(this.currentProcesses)
@@ -878,24 +939,25 @@ export default class VSMVisualizer {
         const totalFlowWaitTime = this.currentFlows
             .reduce((sum, flow) => sum + this.convertTimeToStandardUnit(flow.wait_time), 0);
 
-        const overallLeadTime = totalCycleTime + totalProcessWaitTime + totalFlowWaitTime;
+        // Total Lead Time is the critical path time (longest path through the value stream)
+        const totalLeadTime = this.criticalPathData.time;
 
-        // Calculate process time only for processes on the critical path
-        const totalProcessTime = this.criticalPathData.path
-            .reduce((sum, processId) => {
-                const process = this.currentProcesses[processId];
-                const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
-                const wtTime = this.convertTimeToStandardUnit(process.attributes.wait_time);
-                return sum + ptTime + wtTime;  // CT = PT + WT
-            }, 0);
+        // Create critical path display with process names
+        const criticalPathNames = this.criticalPathData.path.map(processId => {
+            const process = this.currentProcesses[processId];
+            return process ? (process.attributes.name || processId) : processId;
+        });
 
         // Update the UI
-        document.getElementById('totalLeadTime').textContent = `${overallLeadTime.toFixed(1)}d`;
+        document.getElementById('totalLeadTime').textContent = `${totalLeadTime.toFixed(1)}d`;
         document.getElementById('totalWaitTime').textContent = `${(totalProcessWaitTime + totalFlowWaitTime).toFixed(1)}d`;
-        document.getElementById('totalProcessTime').textContent = `${totalCycleTime.toFixed(1)}d`;
-        document.getElementById('criticalPath').textContent = 
-            `${this.criticalPathData.time.toFixed(1)}d (${this.criticalPathData.path.join(' → ')})`;
-        
+        document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)}d`;
+        document.getElementById('criticalPath').textContent =
+            `${this.criticalPathData.time.toFixed(1)}d (${criticalPathNames.join(' → ')})`;
+
+        // Update critical path styling
+        this.updateCriticalPathStyling();
+
         // Redraw flows to update critical path highlighting
         this.redrawFlows();
     }
