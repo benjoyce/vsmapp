@@ -523,8 +523,13 @@ positions {
         function showWaitTimeBreakdown() {
             const breakdownDiv = document.getElementById('waitTimeBreakdown');
 
+            // Get critical path data
+            const criticalPathProcessIds = new Set(visualizer.criticalPathData?.path || []);
+            const criticalFlows = visualizer.criticalPathData?.flows || new Set();
+
             // Calculate wait times (include all processes, even with 0 wait time)
-            const processWaitTimes = [];
+            const processWaitTimesCritical = [];
+            const processWaitTimesOther = [];
             let totalProcessWT = 0;
             let maxWaitTime = -1;
 
@@ -533,16 +538,22 @@ positions {
                 if (wtValue > maxWaitTime) {
                     maxWaitTime = wtValue;
                 }
-                processWaitTimes.push({
+                const item = {
                     name: process.attributes.name || processId,
                     value: process.attributes.wait_time,
                     numericValue: wtValue,
                     isZero: wtValue === 0
-                });
+                };
+                if (criticalPathProcessIds.has(processId)) {
+                    processWaitTimesCritical.push(item);
+                } else {
+                    processWaitTimesOther.push(item);
+                }
                 totalProcessWT += wtValue;
             });
 
-            const flowWaitTimes = [];
+            const flowWaitTimesCritical = [];
+            const flowWaitTimesOther = [];
             let totalFlowWT = 0;
             let maxFlowWaitTime = -1;
 
@@ -553,12 +564,18 @@ positions {
                 }
                 const fromName = visualizer.currentProcesses[flow.from]?.attributes?.name || flow.from;
                 const toName = visualizer.currentProcesses[flow.to]?.attributes?.name || flow.to;
-                flowWaitTimes.push({
+                const flowKey = `${flow.from}-${flow.to}`;
+                const item = {
                     name: `${fromName} → ${toName}`,
                     value: flow.wait_time,
                     numericValue: wtValue,
                     isZero: wtValue === 0
-                });
+                };
+                if (criticalFlows.has(flowKey)) {
+                    flowWaitTimesCritical.push(item);
+                } else {
+                    flowWaitTimesOther.push(item);
+                }
                 totalFlowWT += wtValue;
             });
 
@@ -567,16 +584,13 @@ positions {
             // Build HTML
             let html = '';
 
-            // Process Wait Times section
-            if (processWaitTimes.length > 0) {
-                html += '<div class="breakdown-section">';
-                html += '<h4>Process Wait Times</h4>';
-                processWaitTimes.forEach(item => {
-                    // Use green color for processes with 0 wait time, red for longest wait time
+            // Helper function to render wait time items
+            const renderWaitTimeItems = (items, maxValue) => {
+                items.forEach(item => {
                     let itemStyle = '';
                     if (item.isZero) {
                         itemStyle = 'color: #27ae60;'; // Green for zero wait time
-                    } else if (item.numericValue === maxWaitTime && maxWaitTime > 0) {
+                    } else if (item.numericValue === maxValue && maxValue > 0) {
                         itemStyle = 'color: red;'; // Red for longest wait time (excluding zeros)
                     }
                     html += `<div class="breakdown-item">
@@ -584,6 +598,25 @@ positions {
                         <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
                     </div>`;
                 });
+            };
+
+            // Process Wait Times section
+            if (processWaitTimesCritical.length > 0 || processWaitTimesOther.length > 0) {
+                html += '<div class="breakdown-section">';
+                html += '<h4>Process Wait Times</h4>';
+                
+                // Critical Path processes
+                if (processWaitTimesCritical.length > 0) {
+                    html += '<h5 style="color: #e67e22; margin: 10px 0 5px 0; font-size: 0.95em;">Critical Path</h5>';
+                    renderWaitTimeItems(processWaitTimesCritical, maxWaitTime);
+                }
+                
+                // Other processes
+                if (processWaitTimesOther.length > 0) {
+                    html += '<h5 style="color: #7f8c8d; margin: 10px 0 5px 0; font-size: 0.95em;">Other</h5>';
+                    renderWaitTimeItems(processWaitTimesOther, maxWaitTime);
+                }
+                
                 html += `<div class="breakdown-item" style="font-weight: bold; color: #3498db;">
                     <div class="breakdown-name">Subtotal</div>
                     <div class="breakdown-value">${totalProcessWT.toFixed(1)}d</div>
@@ -592,22 +625,22 @@ positions {
             }
 
             // Flow Wait Times section
-            if (flowWaitTimes.length > 0) {
+            if (flowWaitTimesCritical.length > 0 || flowWaitTimesOther.length > 0) {
                 html += '<div class="breakdown-section">';
                 html += '<h4>Flow Wait Times (Inter-Process)</h4>';
-                flowWaitTimes.forEach(item => {
-                    // Use green color for flows with 0 wait time, red for longest wait time
-                    let itemStyle = '';
-                    if (item.isZero) {
-                        itemStyle = 'color: #27ae60;'; // Green for zero wait time
-                    } else if (item.numericValue === maxFlowWaitTime && maxFlowWaitTime > 0) {
-                        itemStyle = 'color: red;'; // Red for longest wait time (excluding zeros)
-                    }
-                    html += `<div class="breakdown-item">
-                        <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
-                        <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
-                    </div>`;
-                });
+                
+                // Critical Path flows
+                if (flowWaitTimesCritical.length > 0) {
+                    html += '<h5 style="color: #e67e22; margin: 10px 0 5px 0; font-size: 0.95em;">Critical Path</h5>';
+                    renderWaitTimeItems(flowWaitTimesCritical, maxFlowWaitTime);
+                }
+                
+                // Other flows
+                if (flowWaitTimesOther.length > 0) {
+                    html += '<h5 style="color: #7f8c8d; margin: 10px 0 5px 0; font-size: 0.95em;">Other</h5>';
+                    renderWaitTimeItems(flowWaitTimesOther, maxFlowWaitTime);
+                }
+                
                 html += `<div class="breakdown-item" style="font-weight: bold; color: #3498db;">
                     <div class="breakdown-name">Subtotal</div>
                     <div class="breakdown-value">${totalFlowWT.toFixed(1)}d</div>
@@ -660,7 +693,7 @@ positions {
 
                 html += `<div class="breakdown-item">
                     <div class="breakdown-name">${index + 1}. ${processName}</div>
-                    <div class="breakdown-value">${process.attributes.process_time} PT + ${process.attributes.wait_time} WT = ${cycleTime.toFixed(4)}d</div>
+                    <div class="breakdown-value">${process.attributes.process_time} PT + ${process.attributes.wait_time} WT = ${cycleTime.toFixed(2)}d</div>
                 </div>`;
 
                 runningTotal += cycleTime;
@@ -685,7 +718,7 @@ positions {
             // Total section
             html += '<div class="breakdown-total">';
             html += '<div class="breakdown-name">Total Lead Time (Critical Path)</div>';
-            html += `<div class="breakdown-value">${criticalPathTime.toFixed(4)}d</div>`;
+            html += `<div class="breakdown-value">${criticalPathTime.toFixed(2)}d</div>`;
             html += '</div>';
 
             // Show formula
@@ -700,7 +733,11 @@ positions {
         function showProcessTimeBreakdown() {
             const breakdownDiv = document.getElementById('processTimeBreakdown');
 
-            const processTimes = [];
+            // Get critical path data
+            const criticalPathProcessIds = new Set(visualizer.criticalPathData?.path || []);
+
+            const processTimesCritical = [];
+            const processTimesOther = [];
             let totalPT = 0;
             let maxProcessTime = -1;
 
@@ -709,43 +746,64 @@ positions {
                 if (ptValue > maxProcessTime) {
                     maxProcessTime = ptValue;
                 }
-                processTimes.push({
+                const item = {
                     name: process.attributes.name || processId,
                     value: process.attributes.process_time,
                     numericValue: ptValue,
                     isZero: ptValue === 0
-                });
+                };
+                if (criticalPathProcessIds.has(processId)) {
+                    processTimesCritical.push(item);
+                } else {
+                    processTimesOther.push(item);
+                }
                 totalPT += ptValue;
             });
 
             // Sort by numeric value (descending)
-            processTimes.sort((a, b) => b.numericValue - a.numericValue);
+            processTimesCritical.sort((a, b) => b.numericValue - a.numericValue);
+            processTimesOther.sort((a, b) => b.numericValue - a.numericValue);
 
             let html = '';
+
+            // Helper function to render process time items
+            const renderProcessTimeItems = (items) => {
+                items.forEach(item => {
+                    let itemStyle = '';
+                    if (item.isZero) {
+                        itemStyle = 'color: #27ae60;'; // Green for zero process time
+                    } else if (item.numericValue === maxProcessTime && maxProcessTime > 0) {
+                        itemStyle = 'color: red;'; // Red for longest process time (excluding zeros)
+                    }
+                    html += `<div class="breakdown-item">
+                        <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
+                        <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
+                    </div>`;
+                });
+            };
 
             // Process Times section
             html += '<div class="breakdown-section">';
             html += '<h4>Process Times</h4>';
             html += '<p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 10px;">Time spent actively working on each process</p>';
-            processTimes.forEach(item => {
-                // Use green color for processes with 0 process time, red for longest process time
-                let itemStyle = '';
-                if (item.isZero) {
-                    itemStyle = 'color: #27ae60;'; // Green for zero process time
-                } else if (item.numericValue === maxProcessTime && maxProcessTime > 0) {
-                    itemStyle = 'color: red;'; // Red for longest process time (excluding zeros)
-                }
-                html += `<div class="breakdown-item">
-                    <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
-                    <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
-                </div>`;
-            });
+            
+            // Critical Path processes
+            if (processTimesCritical.length > 0) {
+                html += '<h5 style="color: #e67e22; margin: 10px 0 5px 0; font-size: 0.95em;">Critical Path</h5>';
+                renderProcessTimeItems(processTimesCritical);
+            }
+            
+            // Other processes
+            if (processTimesOther.length > 0) {
+                html += '<h5 style="color: #7f8c8d; margin: 10px 0 5px 0; font-size: 0.95em;">Other</h5>';
+                renderProcessTimeItems(processTimesOther);
+            }
             html += '</div>';
 
             // Total section
             html += '<div class="breakdown-total">';
             html += '<div class="breakdown-name">Total Process Time</div>';
-            html += `<div class="breakdown-value">${totalPT.toFixed(4)}d</div>`;
+            html += `<div class="breakdown-value">${totalPT.toFixed(2)}d</div>`;
             html += '</div>';
 
             // Show formula
@@ -799,7 +857,7 @@ positions {
 
                 html += `<div class="breakdown-item">
                     <div class="breakdown-name">${index + 1}. ${processName} (CT)</div>
-                    <div class="breakdown-value">${cycleTime.toFixed(4)}d</div>
+                    <div class="breakdown-value">${cycleTime.toFixed(2)}d</div>
                 </div>`;
 
                 runningTotal += cycleTime;
@@ -812,7 +870,7 @@ positions {
                         const flowWT = visualizer.convertTimeToStandardUnit(flow.wait_time);
                         html += `<div class="breakdown-item" style="padding-left: 20px; color: #7f8c8d;">
                             <div class="breakdown-name">   + Flow WT</div>
-                            <div class="breakdown-value">${flowWT.toFixed(4)}d</div>
+                            <div class="breakdown-value">${flowWT.toFixed(2)}d</div>
                         </div>`;
                         runningTotal += flowWT;
                     }
@@ -824,7 +882,7 @@ positions {
             // Total section
             html += '<div class="breakdown-total">';
             html += '<div class="breakdown-name">Critical Path Time</div>';
-            html += `<div class="breakdown-value">${criticalPathTime.toFixed(4)}d</div>`;
+            html += `<div class="breakdown-value">${criticalPathTime.toFixed(2)}d</div>`;
             html += '</div>';
 
             // Show formula
