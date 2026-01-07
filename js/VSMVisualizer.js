@@ -1003,24 +1003,46 @@ export default class VSMVisualizer {
             this.currentFlows
         );
         
-        // Calculate total process time (sum of ALL process times, not cycle times)
-        const totalProcessTime = Object.values(this.currentProcesses)
-            .reduce((sum, process) => {
-                const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
-                return sum + ptTime;
+        // Get critical path flows set for filtering
+        const criticalFlows = this.criticalPathData.flows || new Set();
+        const criticalPath = this.criticalPathData.path || [];
+        
+        // Calculate total process time (sum of ONLY critical path process times)
+        const totalProcessTime = criticalPath
+            .reduce((sum, processId) => {
+                const process = this.currentProcesses[processId];
+                if (process) {
+                    const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
+                    return sum + ptTime;
+                }
+                return sum;
             }, 0);
 
-        const totalProcessWaitTime = Object.values(this.currentProcesses)
-            .reduce((sum, process) => sum + this.convertTimeToStandardUnit(process.attributes.wait_time), 0);
+        // Calculate total process wait time (sum of ONLY critical path process wait times)
+        const totalProcessWaitTime = criticalPath
+            .reduce((sum, processId) => {
+                const process = this.currentProcesses[processId];
+                if (process) {
+                    return sum + this.convertTimeToStandardUnit(process.attributes.wait_time);
+                }
+                return sum;
+            }, 0);
 
+        // Calculate total flow wait time (sum of ONLY critical path flow wait times)
         const totalFlowWaitTime = this.currentFlows
-            .reduce((sum, flow) => sum + this.convertTimeToStandardUnit(flow.wait_time), 0);
+            .reduce((sum, flow) => {
+                const flowKey = `${flow.from}-${flow.to}`;
+                if (criticalFlows.has(flowKey)) {
+                    return sum + this.convertTimeToStandardUnit(flow.wait_time);
+                }
+                return sum;
+            }, 0);
 
         // Total Lead Time is the critical path time (longest path through the value stream)
-        const totalLeadTime = this.criticalPathData.time;
+        const totalLeadTime = this.criticalPathData.time || 0;
 
         // Create critical path display with process names
-        const criticalPathNames = this.criticalPathData.path.map(processId => {
+        const criticalPathNames = criticalPath.map(processId => {
             const process = this.currentProcesses[processId];
             return process ? (process.attributes.name || processId) : processId;
         });
@@ -1030,7 +1052,7 @@ export default class VSMVisualizer {
         document.getElementById('totalWaitTime').textContent = `${(totalProcessWaitTime + totalFlowWaitTime).toFixed(1)}d`;
         document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)}d`;
         document.getElementById('criticalPath').textContent =
-            `${this.criticalPathData.time.toFixed(1)}d (${criticalPathNames.join(' → ')})`;
+            `${totalLeadTime.toFixed(1)}d (${criticalPathNames.join(' → ')})`;
 
         // Update critical path styling
         this.updateCriticalPathStyling();

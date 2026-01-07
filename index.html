@@ -523,37 +523,43 @@ positions {
         function showWaitTimeBreakdown() {
             const breakdownDiv = document.getElementById('waitTimeBreakdown');
 
-            // Calculate wait times
+            // Calculate wait times (include all processes, even with 0 wait time)
             const processWaitTimes = [];
             let totalProcessWT = 0;
+            let maxWaitTime = -1;
 
             Object.entries(visualizer.currentProcesses).forEach(([processId, process]) => {
                 const wtValue = visualizer.convertTimeToStandardUnit(process.attributes.wait_time);
-                if (wtValue > 0) {
-                    processWaitTimes.push({
-                        name: process.attributes.name || processId,
-                        value: process.attributes.wait_time,
-                        numericValue: wtValue
-                    });
-                    totalProcessWT += wtValue;
+                if (wtValue > maxWaitTime) {
+                    maxWaitTime = wtValue;
                 }
+                processWaitTimes.push({
+                    name: process.attributes.name || processId,
+                    value: process.attributes.wait_time,
+                    numericValue: wtValue,
+                    isZero: wtValue === 0
+                });
+                totalProcessWT += wtValue;
             });
 
             const flowWaitTimes = [];
             let totalFlowWT = 0;
+            let maxFlowWaitTime = -1;
 
             visualizer.currentFlows.forEach(flow => {
                 const wtValue = visualizer.convertTimeToStandardUnit(flow.wait_time);
-                if (wtValue > 0) {
-                    const fromName = visualizer.currentProcesses[flow.from]?.attributes?.name || flow.from;
-                    const toName = visualizer.currentProcesses[flow.to]?.attributes?.name || flow.to;
-                    flowWaitTimes.push({
-                        name: `${fromName} → ${toName}`,
-                        value: flow.wait_time,
-                        numericValue: wtValue
-                    });
-                    totalFlowWT += wtValue;
+                if (wtValue > maxFlowWaitTime) {
+                    maxFlowWaitTime = wtValue;
                 }
+                const fromName = visualizer.currentProcesses[flow.from]?.attributes?.name || flow.from;
+                const toName = visualizer.currentProcesses[flow.to]?.attributes?.name || flow.to;
+                flowWaitTimes.push({
+                    name: `${fromName} → ${toName}`,
+                    value: flow.wait_time,
+                    numericValue: wtValue,
+                    isZero: wtValue === 0
+                });
+                totalFlowWT += wtValue;
             });
 
             const totalWT = totalProcessWT + totalFlowWT;
@@ -566,9 +572,16 @@ positions {
                 html += '<div class="breakdown-section">';
                 html += '<h4>Process Wait Times</h4>';
                 processWaitTimes.forEach(item => {
+                    // Use green color for processes with 0 wait time, red for longest wait time
+                    let itemStyle = '';
+                    if (item.isZero) {
+                        itemStyle = 'color: #27ae60;'; // Green for zero wait time
+                    } else if (item.numericValue === maxWaitTime && maxWaitTime > 0) {
+                        itemStyle = 'color: red;'; // Red for longest wait time (excluding zeros)
+                    }
                     html += `<div class="breakdown-item">
-                        <div class="breakdown-name">${item.name}</div>
-                        <div class="breakdown-value">${item.value}</div>
+                        <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
+                        <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
                     </div>`;
                 });
                 html += `<div class="breakdown-item" style="font-weight: bold; color: #3498db;">
@@ -583,9 +596,16 @@ positions {
                 html += '<div class="breakdown-section">';
                 html += '<h4>Flow Wait Times (Inter-Process)</h4>';
                 flowWaitTimes.forEach(item => {
+                    // Use green color for flows with 0 wait time, red for longest wait time
+                    let itemStyle = '';
+                    if (item.isZero) {
+                        itemStyle = 'color: #27ae60;'; // Green for zero wait time
+                    } else if (item.numericValue === maxFlowWaitTime && maxFlowWaitTime > 0) {
+                        itemStyle = 'color: red;'; // Red for longest wait time (excluding zeros)
+                    }
                     html += `<div class="breakdown-item">
-                        <div class="breakdown-name">${item.name}</div>
-                        <div class="breakdown-value">${item.value}</div>
+                        <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
+                        <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
                     </div>`;
                 });
                 html += `<div class="breakdown-item" style="font-weight: bold; color: #3498db;">
@@ -682,13 +702,18 @@ positions {
 
             const processTimes = [];
             let totalPT = 0;
+            let maxProcessTime = -1;
 
             Object.entries(visualizer.currentProcesses).forEach(([processId, process]) => {
                 const ptValue = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                if (ptValue > maxProcessTime) {
+                    maxProcessTime = ptValue;
+                }
                 processTimes.push({
                     name: process.attributes.name || processId,
                     value: process.attributes.process_time,
-                    numericValue: ptValue
+                    numericValue: ptValue,
+                    isZero: ptValue === 0
                 });
                 totalPT += ptValue;
             });
@@ -703,9 +728,16 @@ positions {
             html += '<h4>Process Times</h4>';
             html += '<p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 10px;">Time spent actively working on each process</p>';
             processTimes.forEach(item => {
+                // Use green color for processes with 0 process time, red for longest process time
+                let itemStyle = '';
+                if (item.isZero) {
+                    itemStyle = 'color: #27ae60;'; // Green for zero process time
+                } else if (item.numericValue === maxProcessTime && maxProcessTime > 0) {
+                    itemStyle = 'color: red;'; // Red for longest process time (excluding zeros)
+                }
                 html += `<div class="breakdown-item">
-                    <div class="breakdown-name">${item.name}</div>
-                    <div class="breakdown-value">${item.value}</div>
+                    <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
+                    <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
                 </div>`;
             });
             html += '</div>';
