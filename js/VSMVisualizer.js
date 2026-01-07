@@ -1114,10 +1114,9 @@ export default class VSMVisualizer {
             };
             this.currentFlows.push(newFlow);
             
-            // Calculate position for the new process
-            const newX = pos.x + this.processWidth + 100;
-            const newY = pos.y;
-            this.positions[newId] = { x: newX, y: newY };
+            // Calculate position for the new process, avoiding overlaps
+            const newPosition = this.findNonOverlappingPosition(pos.x, pos.y);
+            this.positions[newId] = newPosition;
             
             // Update the DSL
             this.updateDSLWithNewProcess(newProcess, newId, newFlow);
@@ -1144,6 +1143,56 @@ export default class VSMVisualizer {
         const controlsLayer = this.svg.querySelector('#controls-layer') || this.svg;
         controlsLayer.appendChild(circle);
         controlsLayer.appendChild(plus);
+    }
+
+    /**
+     * Find a non-overlapping position for a new process box.
+     * First tries directly to the right, then alternates above/below if occupied.
+     */
+    findNonOverlappingPosition(sourceX, sourceY) {
+        const horizontalGap = 100;
+        const verticalGap = 50;
+        const newX = sourceX + this.processWidth + horizontalGap;
+        
+        // Helper to check if a position overlaps with any existing process
+        const overlapsExisting = (x, y) => {
+            for (const id in this.positions) {
+                const existingPos = this.positions[id];
+                // Check for bounding box overlap with some margin
+                const overlapX = x < existingPos.x + this.processWidth && 
+                                 x + this.processWidth > existingPos.x;
+                const overlapY = y < existingPos.y + this.processHeight && 
+                                 y + this.processHeight > existingPos.y;
+                if (overlapX && overlapY) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        
+        // First try: directly to the right at the same Y level
+        if (!overlapsExisting(newX, sourceY)) {
+            return { x: newX, y: sourceY };
+        }
+        
+        // Alternate above and below with increasing distance
+        const verticalStep = this.processHeight + verticalGap;
+        for (let offset = 1; offset <= 10; offset++) {
+            // Try above
+            const yAbove = sourceY - offset * verticalStep;
+            if (yAbove >= 0 && !overlapsExisting(newX, yAbove)) {
+                return { x: newX, y: yAbove };
+            }
+            
+            // Try below
+            const yBelow = sourceY + offset * verticalStep;
+            if (!overlapsExisting(newX, yBelow)) {
+                return { x: newX, y: yBelow };
+            }
+        }
+        
+        // Fallback: just place it to the right (original behavior)
+        return { x: newX, y: sourceY };
     }
 
     createNewProcess(baseId, newId) {
