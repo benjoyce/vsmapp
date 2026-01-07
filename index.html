@@ -23,6 +23,7 @@
                     <div class="button-group">
                         <button class="editor-button" data-action="save-file">Save File</button>
                         <button class="editor-button" data-action="load-file">Load File</button>
+                        <button class="editor-button" data-action="export-csv">Export CSV</button>
                         <button class="editor-button" data-action="clear">New VSM</button>
                     </div>
                 </div>
@@ -264,6 +265,7 @@ positions {
             document.querySelector('[data-action="clear"]').addEventListener('click', clearVSM);
             document.querySelector('[data-action="save-file"]').addEventListener('click', saveVSMToFile);
             document.querySelector('[data-action="load-file"]').addEventListener('click', loadVSMFromFile);
+            document.querySelector('[data-action="export-csv"]').addEventListener('click', exportToCSV);
 
             // Track editor modifications
             document.getElementById('dslEditor').addEventListener('input', markAsModified);
@@ -804,6 +806,14 @@ positions {
             breakdownDiv.innerHTML = html;
         }
 
+        function exportToCSV() {
+            if (visualizer) {
+                visualizer.exportToCSV();
+            } else {
+                alert('Visualizer not initialized');
+            }
+        }
+
         // Make functions globally available
         window.parser = parser;
         window.saveVSM = saveVSM;
@@ -811,6 +821,7 @@ positions {
         window.addNewProcess = addNewProcess;
         window.saveVSMToFile = saveVSMToFile;
         window.loadVSMFromFile = loadVSMFromFile;
+        window.exportToCSV = exportToCSV;
 
         // Initialize pane splitter
         function initializePaneSplitter() {

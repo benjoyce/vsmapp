@@ -1873,4 +1873,203 @@ makeNameEditable(titleElement, processId) {
     
     titleElement.addEventListener('click', startEdit);
 }
+
+    /**
+     * Calculate process levels based on flow graph topology
+     * Returns an object mapping processId to level number
+     */
+    calculateProcessLevels() {
+        const processes = this.currentProcesses || {};
+        const flows = this.currentFlows || [];
+        
+        // Build adjacency graph
+        const graph = {};
+        Object.keys(processes).forEach(id => {
+            graph[id] = { in: [], out: [] };
+        });
+        
+        flows.forEach(flow => {
+            if (graph[flow.from] && graph[flow.to]) {
+                graph[flow.from].out.push(flow.to);
+                graph[flow.to].in.push(flow.from);
+            }
+        });
+        
+        // Find start nodes (no incoming edges)
+        const startNodes = Object.keys(graph).filter(id => graph[id].in.length === 0);
+        
+        // Calculate levels using longest path from start nodes (similar to calculatePositions)
+        const levels = {};
+        const visited = new Set();
+        
+        const calculateLevel = (nodeId, level = 0) => {
+            // Take the maximum level (longest path)
+            if (!(nodeId in levels) || levels[nodeId] < level) {
+                levels[nodeId] = level;
+            }
+            
+            // Continue to outgoing nodes
+            graph[nodeId].out.forEach(nextId => {
+                calculateLevel(nextId, level + 1);
+            });
+        };
+        
+        // If no start nodes, assign all to level 0
+        if (startNodes.length === 0) {
+            Object.keys(processes).forEach(id => {
+                levels[id] = 0;
+            });
+            return levels;
+        }
+        
+        // Calculate levels from all start nodes
+        startNodes.forEach(startNode => {
+            calculateLevel(startNode, 0);
+        });
+        
+        // Assign level 0 to any unvisited nodes
+        Object.keys(processes).forEach(id => {
+            if (!(id in levels)) {
+                levels[id] = 0;
+            }
+        });
+        
+        return levels;
+    }
+
+    /**
+     * Export processes to CSV format
+     * Each row is a process, with parallel processes indicated by level and parallel group
+     */
+    exportToCSV() {
+        const processes = this.currentProcesses || {};
+        const flows = this.currentFlows || [];
+        
+        if (Object.keys(processes).length === 0) {
+            alert('No processes to export');
+            return;
+        }
+        
+        // Calculate process levels
+        const levels = this.calculateProcessLevels();
+        
+        // Group processes by level to identify parallel processes
+        const processesByLevel = {};
+        Object.entries(levels).forEach(([processId, level]) => {
+            if (!processesByLevel[level]) {
+                processesByLevel[level] = [];
+            }
+            processesByLevel[level].push(processId);
+        });
+        
+        // Build CSV rows
+        const rows = [];
+        
+        // Header row
+        const headers = [
+            'Level',
+            'Parallel Group',
+            'Process ID',
+            'Stage ID',
+            'Name',
+            'Owner',
+            'Description',
+            'Process Time (PT)',
+            'Wait Time (WT)',
+            'Cycle Time (CT)',
+            'Defect Rate (%)',
+            'Previous Processes',
+            'Next Processes',
+            'Flow Wait Times'
+        ];
+        rows.push(headers);
+        
+        // Sort processes by level, then by name for consistent ordering
+        const sortedProcesses = Object.keys(processes).sort((a, b) => {
+            const levelDiff = levels[a] - levels[b];
+            if (levelDiff !== 0) return levelDiff;
+            const nameA = processes[a].attributes.name || a;
+            const nameB = processes[b].attributes.name || b;
+            return nameA.localeCompare(nameB);
+        });
+        
+        // Create rows for each process
+        sortedProcesses.forEach(processId => {
+            const process = processes[processId];
+            const level = levels[processId];
+            
+            // Find parallel group number (index within level)
+            const parallelGroup = processesByLevel[level].indexOf(processId) + 1;
+            
+            // Find incoming and outgoing flows
+            const incomingFlows = flows.filter(f => f.to === processId);
+            const outgoingFlows = flows.filter(f => f.from === processId);
+            
+            const previousProcesses = incomingFlows.map(f => {
+                const prevName = processes[f.from]?.attributes?.name || f.from;
+                return prevName;
+            }).join('; ');
+            
+            const nextProcesses = outgoingFlows.map(f => {
+                const nextName = processes[f.to]?.attributes?.name || f.to;
+                return nextName;
+            }).join('; ');
+            
+            const flowWaitTimes = incomingFlows.map(f => {
+                const prevName = processes[f.from]?.attributes?.name || f.from;
+                return `${prevName}: ${f.wait_time || '0'}`;
+            }).join('; ');
+            
+            // Calculate cycle time
+            const cycleTime = this.calculateCycleTime(process);
+            
+            // Build row
+            const row = [
+                level.toString(),
+                processesByLevel[level].length > 1 ? `Group ${parallelGroup}` : 'Sequential',
+                processId,
+                (process.attributes.stage_id || '').toString(),
+                (process.attributes.name || '').replace(/"/g, '""'),
+                (process.attributes.owner || '').replace(/"/g, '""'),
+                (process.attributes.description || '').replace(/"/g, '""'),
+                process.attributes.process_time || '',
+                process.attributes.wait_time || '',
+                cycleTime,
+                process.attributes.defect_rate || '0',
+                previousProcesses.replace(/"/g, '""'),
+                nextProcesses.replace(/"/g, '""'),
+                flowWaitTimes.replace(/"/g, '""')
+            ];
+            
+            rows.push(row);
+        });
+        
+        // Convert to CSV string (properly escape commas and quotes)
+        const csvContent = rows.map(row => {
+            return row.map(cell => {
+                // If cell contains comma, quote, or newline, wrap in quotes and escape quotes
+                if (cell.toString().includes(',') || cell.toString().includes('"') || cell.toString().includes('\n')) {
+                    return `"${cell.toString().replace(/"/g, '""')}"`;
+                }
+                return cell.toString();
+            }).join(',');
+        }).join('\n');
+        
+        // Create blob and download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        
+        const downloadLink = document.createElement('a');
+        downloadLink.href = url;
+        
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        downloadLink.download = `vsm-export-${timestamp}.csv`;
+        
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        
+        URL.revokeObjectURL(url);
+    }
 }
