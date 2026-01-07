@@ -9,8 +9,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Value Stream Map Visualizer</h1>
-            <p>Define your processes and flows using our DSL, then visualize your value stream map</p>
+            <h1>Value Stream Map Editor</h1>
         </div>
         
         <div class="main-content">
@@ -27,68 +26,35 @@
                         <button class="editor-button" data-action="clear">New VSM</button>
                     </div>
                 </div>
-                <textarea id="dslEditor" class="editor" spellcheck="false">process process_1767166125801 {
-  stage_id: "1"
-  name: "Build"
+                <textarea id="dslEditor" class="editor" spellcheck="false">process process_1767197206899 {
+  stage_id: 1
+  name: "Process A"
   owner: ""
   description: "New process description"
-  wait_time: "2d"
-  process_time: "5d"
+  wait_time: "4h"
+  process_time: "1d"
   defect_rate: "0"
 }
 
-process process_1767166125801_1 {
-  stage_id: "2"
-  name: "Test"
+process process_1767197206899_1 {
+  stage_id: 2
+  name: "Process B"
   owner: ""
-  description: "New process derived from process_1767166125801"
-  wait_time: "1d"
-  process_time: "10d"
+  description: "New process derived from process_1767197206899"
+  wait_time: 30m
+  process_time: "1d"
   defect_rate: "0"
 }
 
-process process_1767166125801_2 {
-  stage_id: "2"
-  name: "Create and Approve CR"
-  owner: ""
-  description: "New process derived from process_1767166125801"
-  wait_time: "20d"
-  process_time: "30m"
-  defect_rate: "0"
-}
-
-process process_1767166125801_1_1 {
-  stage_id: "3"
-  name: "Deploy"
-  owner: ""
-  description: "New process derived from process_1767166125801_1"
-  wait_time: "0d"
-  process_time: "20m"
-  defect_rate: "0"
-}
-
-flow from process_1767166125801 to process_1767166125801_1 {
-  wait_time: 1d
-}
-
-flow from process_1767166125801 to process_1767166125801_2 {
+flow from process_1767197206899 to process_1767197206899_1 {
   wait_time: 0.5d
 }
 
-flow from process_1767166125801_1 to process_1767166125801_1_1 {
-  wait_time: 10m
-}
-
-flow from process_1767166125801_2 to process_1767166125801_1_1 {
-  wait_time: 0d
-}
-
 positions {
-  process_1767166125801: 371, 290
-  process_1767166125801_1: 635, 289
-  process_1767166125801_2: 640, 465
-  process_1767166125801_1_1: 920, 289
+  process_1767197206899: 370, 290
+  process_1767197206899_1: 630, 290
 }
+
 
 </textarea>
                 <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
