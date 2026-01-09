@@ -81,6 +81,10 @@ positions {
                 <div class="total-label">Total Process Time</div>
                 <div class="total-value" id="totalProcessTime">-</div>
             </div>
+            <div class="total-item clickable" id="pceItem">
+                <div class="total-label">PCE</div>
+                <div class="total-value" id="pce">-</div>
+            </div>
             <div class="total-item clickable" id="criticalPathItem">
                 <div class="total-label">Critical Path</div>
                 <div class="critical-path" id="criticalPath">-</div>
@@ -121,6 +125,19 @@ positions {
                     <span class="modal-close" data-modal="processTimeModal">&times;</span>
                 </div>
                 <div class="modal-body" id="processTimeBreakdown">
+                    <!-- Content will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+
+        <!-- PCE Breakdown Modal -->
+        <div id="pceModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Process Cycle Efficiency (PCE)</h3>
+                    <span class="modal-close" data-modal="pceModal">&times;</span>
+                </div>
+                <div class="modal-body" id="pceBreakdown">
                     <!-- Content will be populated by JavaScript -->
                 </div>
             </div>
@@ -275,6 +292,7 @@ positions {
             setupWaitTimeModal();
             setupLeadTimeModal();
             setupProcessTimeModal();
+            setupPCEModal();
             setupCriticalPathModal();
             setupModalCloseHandlers();
         }
@@ -477,6 +495,17 @@ positions {
             });
         }
 
+        function setupPCEModal() {
+            const modal = document.getElementById('pceModal');
+            const pceItem = document.getElementById('pceItem');
+
+            // Open modal on click
+            pceItem.addEventListener('click', () => {
+                showPCEBreakdown();
+                modal.style.display = 'block';
+            });
+        }
+
         function setupCriticalPathModal() {
             const modal = document.getElementById('criticalPathModal');
             const criticalPathItem = document.getElementById('criticalPathItem');
@@ -518,6 +547,89 @@ positions {
                     });
                 }
             });
+        }
+
+        function showPCEBreakdown() {
+            const breakdownDiv = document.getElementById('pceBreakdown');
+
+            if (!visualizer.criticalPathData || !visualizer.criticalPathData.path) {
+                breakdownDiv.innerHTML = '<p style="color: #7f8c8d;">No critical path data available.</p>';
+                return;
+            }
+
+            const criticalPath = visualizer.criticalPathData.path;
+            
+            // Calculate Total Process Time (critical path only)
+            const totalProcessTime = criticalPath.reduce((sum, processId) => {
+                const process = visualizer.currentProcesses[processId];
+                if (process) {
+                    return sum + visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                }
+                return sum;
+            }, 0);
+
+            // Get Total Lead Time (critical path time)
+            const totalLeadTime = visualizer.criticalPathData.time || 0;
+
+            // Calculate PCE
+            const pce = totalLeadTime > 0 ? (totalProcessTime / totalLeadTime) * 100 : 0;
+
+            let html = '<div style="margin-bottom: 20px;">';
+            html += '<p style="font-size: 14px; line-height: 1.6; color: #2c3e50;">';
+            html += '<strong>Process Cycle Efficiency (PCE)</strong> measures the percentage of time that adds value to the product or service. ';
+            html += 'It compares the time spent on value-adding activities (Process Time) to the total time from start to finish (Lead Time).';
+            html += '</p>';
+            html += '</div>';
+
+            // Show the formula
+            html += '<div style="background: #ecf0f1; padding: 15px; border-radius: 5px; margin-bottom: 20px;">';
+            html += '<div style="text-align: center; font-size: 16px; margin-bottom: 10px;"><strong>Formula:</strong></div>';
+            html += '<div style="text-align: center; font-size: 14px; font-family: monospace; color: #2c3e50;">';
+            html += 'PCE = (Total Process Time / Total Lead Time) × 100';
+            html += '</div>';
+            html += '</div>';
+
+            // Show the calculation
+            html += '<div style="background: #fff; border: 1px solid #bdc3c7; border-radius: 5px; padding: 15px; margin-bottom: 20px;">';
+            html += '<div style="text-align: center; font-size: 16px; margin-bottom: 15px;"><strong>Calculation:</strong></div>';
+            
+            html += '<div class="breakdown-row" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ecf0f1;">';
+            html += '<div class="breakdown-name">Total Process Time (Critical Path)</div>';
+            html += `<div class="breakdown-value">${totalProcessTime.toFixed(2)}d</div>`;
+            html += '</div>';
+
+            html += '<div class="breakdown-row" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ecf0f1;">';
+            html += '<div class="breakdown-name">Total Lead Time (Critical Path)</div>';
+            html += `<div class="breakdown-value">${totalLeadTime.toFixed(2)}d</div>`;
+            html += '</div>';
+
+            html += '<div class="breakdown-row" style="display: flex; justify-content: space-between; padding: 12px 0; margin-top: 10px; background: #e8f5e9; border-radius: 5px; padding-left: 10px; padding-right: 10px;">';
+            html += '<div class="breakdown-name" style="font-weight: bold; font-size: 16px;">PCE</div>';
+            html += `<div class="breakdown-value" style="font-weight: bold; font-size: 16px; color: #27ae60;">${pce.toFixed(1)}%</div>`;
+            html += '</div>';
+
+            html += '</div>';
+
+            // Show interpretation
+            html += '<div style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">';
+            html += '<div style="font-weight: bold; margin-bottom: 8px; color: #856404;">💡 Interpretation:</div>';
+            html += '<ul style="margin: 0; padding-left: 20px; color: #856404; font-size: 13px;">';
+            
+            if (pce >= 25) {
+                html += '<li>Your PCE is <strong>above average</strong>. Good efficiency!</li>';
+            } else if (pce >= 10) {
+                html += '<li>Your PCE is <strong>typical</strong> for many processes.</li>';
+            } else {
+                html += '<li>Your PCE indicates significant waiting time.</li>';
+            }
+            
+            html += '<li>Higher PCE means more value-added time relative to total time.</li>';
+            html += '<li>To improve PCE: reduce wait times and non-value-added activities.</li>';
+            html += '<li>World-class manufacturers often target PCE > 25%.</li>';
+            html += '</ul>';
+            html += '</div>';
+
+            breakdownDiv.innerHTML = html;
         }
 
         function showWaitTimeBreakdown() {

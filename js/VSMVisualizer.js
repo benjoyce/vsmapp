@@ -1088,6 +1088,9 @@ export default class VSMVisualizer {
         // Total Lead Time is the critical path time (longest path through the value stream)
         const totalLeadTime = this.criticalPathData.time || 0;
 
+        // Calculate PCE (Process Cycle Efficiency) = (Total Process Time / Total Lead Time) * 100
+        const pce = totalLeadTime > 0 ? (totalProcessTime / totalLeadTime) * 100 : 0;
+
         // Create critical path display with process names
         const criticalPathNames = criticalPath.map(processId => {
             const process = this.currentProcesses[processId];
@@ -1098,6 +1101,7 @@ export default class VSMVisualizer {
         document.getElementById('totalLeadTime').textContent = `${totalLeadTime.toFixed(1)}d`;
         document.getElementById('totalWaitTime').textContent = `${(totalProcessWaitTime + totalFlowWaitTime).toFixed(1)}d`;
         document.getElementById('totalProcessTime').textContent = `${totalProcessTime.toFixed(1)}d`;
+        document.getElementById('pce').textContent = `${pce.toFixed(1)}%`;
         document.getElementById('criticalPath').textContent =
             `${totalLeadTime.toFixed(1)}d (${criticalPathNames.join(' → ')})`;
 
