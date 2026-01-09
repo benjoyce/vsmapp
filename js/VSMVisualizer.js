@@ -522,6 +522,23 @@ export default class VSMVisualizer {
                     }
                 }
                 
+                // Update the waste indicator if it belongs to this process
+                const wasteIndicator = this.svg.querySelector(`.waste-indicator[data-waste-for="${processId}"]`);
+                if (wasteIndicator) {
+                    const indicatorX = newX + this.processWidth;
+                    const indicatorY = newY;
+                    const wasteCircle = wasteIndicator.querySelector('circle');
+                    const wasteText = wasteIndicator.querySelector('text');
+                    if (wasteCircle) {
+                        wasteCircle.setAttribute('cx', indicatorX);
+                        wasteCircle.setAttribute('cy', indicatorY);
+                    }
+                    if (wasteText) {
+                        wasteText.setAttribute('x', indicatorX);
+                        wasteText.setAttribute('y', indicatorY + 1);
+                    }
+                }
+                
                 this.positions[processId] = { x: newX, y: newY };
                 this.redrawFlows();
                 this.drawReworkFlows();
@@ -759,6 +776,7 @@ export default class VSMVisualizer {
         
         // Highlight the highest rework rate
         this.highlightHighestReworkRate();
+        this.highlightMostWastefulProcess();
 
         // Ensure controls layer is moved to the end of the child list after render
         // Use a micro task to ensure any subsequent synchronous appends finish first.
@@ -1110,6 +1128,9 @@ export default class VSMVisualizer {
 
         // Redraw flows to update critical path highlighting
         this.redrawFlows();
+        
+        // Highlight the most wasteful process
+        this.highlightMostWastefulProcess();
     }
 
     // Add this new method to parse DSL changes
@@ -2269,6 +2290,98 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
                     label.style.fill = 'red';
                 });
             });
+        }
+    }
+
+    highlightMostWastefulProcess() {
+        const processes = this.currentProcesses || {};
+        
+        if (Object.keys(processes).length === 0) return;
+        
+        // Remove existing waste indicators
+        const existingIndicators = this.svg.querySelectorAll('.waste-indicator');
+        existingIndicators.forEach(indicator => indicator.remove());
+        
+        // Calculate PCE for each process
+        let lowestPCE = Infinity;
+        let mostWastefulProcessId = null;
+        const pceValues = {};
+        
+        Object.entries(processes).forEach(([processId, process]) => {
+            const processTime = this.convertTimeToStandardUnit(process.attributes.process_time || '0');
+            const waitTime = this.convertTimeToStandardUnit(process.attributes.wait_time || '0');
+            const totalTime = processTime + waitTime;
+            
+            // Calculate per-process PCE
+            const pce = totalTime > 0 ? (processTime / totalTime) * 100 : 100;
+            pceValues[processId] = pce;
+            
+            // Find the process with lowest PCE (most wasteful)
+            if (pce < lowestPCE) {
+                lowestPCE = pce;
+                mostWastefulProcessId = processId;
+            }
+        });
+        
+        // Only highlight if there's meaningful waste (PCE < 100%)
+        if (mostWastefulProcessId && lowestPCE < 100) {
+            const pos = this.positions[mostWastefulProcessId];
+            const process = processes[mostWastefulProcessId];
+            if (!pos || !process) return;
+            
+            // Calculate times for the tooltip
+            const processTime = this.convertTimeToStandardUnit(process.attributes.process_time || '0');
+            const waitTime = this.convertTimeToStandardUnit(process.attributes.wait_time || '0');
+            const processName = process.attributes.name || mostWastefulProcessId;
+            
+            // Create a group for the waste indicator
+            const indicatorGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            indicatorGroup.setAttribute('class', 'waste-indicator');
+            indicatorGroup.setAttribute('data-waste-for', mostWastefulProcessId);
+            indicatorGroup.style.cursor = 'help';
+            
+            // Position over the top-right corner of the process box
+            const indicatorX = pos.x + this.processWidth;
+            const indicatorY = pos.y;
+            
+            // Create red circle
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('cx', indicatorX);
+            circle.setAttribute('cy', indicatorY);
+            circle.setAttribute('r', '12');
+            circle.setAttribute('fill', '#e74c3c');
+            circle.setAttribute('stroke', '#fff');
+            circle.setAttribute('stroke-width', '2.5');
+            
+            // Create exclamation mark
+            const exclamation = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            exclamation.setAttribute('x', indicatorX);
+            exclamation.setAttribute('y', indicatorY + 1);
+            exclamation.setAttribute('text-anchor', 'middle');
+            exclamation.setAttribute('dominant-baseline', 'middle');
+            exclamation.setAttribute('font-size', '16');
+            exclamation.setAttribute('font-weight', 'bold');
+            exclamation.setAttribute('fill', '#fff');
+            exclamation.textContent = '!';
+            
+            // Add detailed title for tooltip
+            const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+            title.textContent = `⚠️ MOST WASTEFUL PROCESS ⚠️
+Process: ${processName}
+Process-Level PCE: ${lowestPCE.toFixed(1)}%
+
+Process Time: ${processTime.toFixed(2)}d (value-added)
+Wait Time: ${waitTime.toFixed(2)}d (waste)
+Total Time: ${(processTime + waitTime).toFixed(2)}d
+
+This process has the lowest ratio of value-added time.
+Focus improvement efforts here to reduce wait time.`;
+            
+            indicatorGroup.appendChild(title);
+            indicatorGroup.appendChild(circle);
+            indicatorGroup.appendChild(exclamation);
+            
+            this.svg.appendChild(indicatorGroup);
         }
     }
 
