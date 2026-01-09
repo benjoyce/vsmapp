@@ -27,6 +27,13 @@ export default class VSMVisualizer {
         this.tempFlowLine = null;
         this.selectedFlow = null;
 
+        // Rework flow interaction state
+        this.isDraggingRework = false;
+        this.reworkDragStart = null;
+        this.tempReworkLine = null;
+        this.currentReworkFlows = [];
+        this.selectedReworkFlow = null;
+
         this.setupSVG();
         this.setupPanning();
         this.setupZoom();
@@ -143,6 +150,9 @@ export default class VSMVisualizer {
 
             // Handle flow dragging
             this.dragFlow(e);
+            
+            // Handle rework dragging
+            this.dragRework(e);
         });
 
         // Stop panning on mouse button release
@@ -154,6 +164,9 @@ export default class VSMVisualizer {
 
             // Handle flow drag end
             this.endFlowDrag(e);
+            
+            // Handle rework drag end
+            this.endReworkDrag(e);
         });
 
         // Initialize viewBox
@@ -332,6 +345,10 @@ export default class VSMVisualizer {
 
             // Add flow connection point (created by helper)
             this.addFlowConnectionPoint(group, processId, pos);
+            
+            // Add rework connection point at the bottom
+            this.addReworkConnectionPoint(group, processId, pos);
+            
             // Append the process group to the SVG canvas
             this.svg.appendChild(group);
         });
@@ -487,8 +504,27 @@ export default class VSMVisualizer {
                         fpText.setAttribute('y', fpY + 1);
                     }
                 }
+                
+                // Update the rework connection point so it stays with the process
+                const reworkPoint = this.svg.querySelector(`.rework-connection-point[data-rework-connection-for="${processId}"]`);
+                if (reworkPoint) {
+                    const rwX = newX + this.processWidth / 2;
+                    const rwY = newY + this.processHeight; // Halfway across the bottom line
+                    const rwCircle = reworkPoint.querySelector('circle');
+                    const rwText = reworkPoint.querySelector('text');
+                    if (rwCircle) {
+                        rwCircle.setAttribute('cx', rwX);
+                        rwCircle.setAttribute('cy', rwY);
+                    }
+                    if (rwText) {
+                        rwText.setAttribute('x', rwX);
+                        rwText.setAttribute('y', rwY + 1);
+                    }
+                }
+                
                 this.positions[processId] = { x: newX, y: newY };
                 this.redrawFlows();
+                this.drawReworkFlows();
 
                 // Update the DSL editor with new positions
                 this.updateDSLWithPositions();
@@ -673,8 +709,12 @@ export default class VSMVisualizer {
             processes: this.currentProcesses,
             flows: this.currentFlows,
             infoFlows: this.currentInfoFlows,
-            positions: this.positions
+            positions: this.positions,
+            reworkFlows: this.currentReworkFlows
         };
+
+        console.log('Rework flows being saved:', this.currentReworkFlows);
+        console.log('Full state:', currentState);
 
         // Update the DSL text with positions
         const dslText = window.parser.serialize(currentState);
@@ -685,11 +725,17 @@ export default class VSMVisualizer {
     }
 
     visualize(data) {
+        console.log('Visualizing data:', data);
+        console.log('Rework flows in data:', data.reworkFlows);
+        
         this.setupSVG();
         
         this.currentProcesses = data.processes;
         this.currentFlows = data.flows;
         this.currentInfoFlows = data.infoFlows;
+        this.currentReworkFlows = data.reworkFlows || [];
+        
+        console.log('Current rework flows after setting:', this.currentReworkFlows);
         
         // Use existing positions or calculate new ones
         this.positions = data.positions && Object.keys(data.positions).length > 0 
@@ -700,6 +746,7 @@ export default class VSMVisualizer {
         
         this.drawProcesses(data.processes, this.positions);
         this.drawFlows(data.flows, this.positions);
+        this.drawReworkFlows();
 
         // Ensure controls (add-buttons, connection dots) render above flows
         this.bringControlsToFront();
@@ -1071,6 +1118,7 @@ export default class VSMVisualizer {
         // Update current data if validation passes
         this.currentProcesses = parsedData.processes;
         this.currentFlows = parsedData.flows;
+        this.currentReworkFlows = parsedData.reworkFlows || [];
         
         // Update all timing calculations
         this.updateTimingCalculations();
@@ -1304,6 +1352,8 @@ setupFlowDeletion() {
                     this.deleteSelectedProcess();
                 } else if (this.selectedFlow) {
                     this.deleteSelectedFlow();
+                } else if (this.selectedReworkFlow) {
+                    this.deleteSelectedReworkFlow();
                 }
             }
     });
@@ -1313,6 +1363,7 @@ setupFlowDeletion() {
             if (evt.target === this.svg || evt.target.tagName === 'svg') {
                 this.deselectFlow();
                 this.deselectProcess();
+                this.deselectReworkFlow();
             }
     });
 }
@@ -1337,6 +1388,48 @@ deselectFlow() {
         this.selectedFlow.element.classList.remove('selected');
     }
     this.selectedFlow = null;
+}
+
+selectReworkFlow(rework, element, evt) {
+    evt.stopPropagation();
+
+    // Deselect previous selections
+    this.deselectFlow();
+    this.deselectProcess();
+    this.deselectReworkFlow();
+
+    // Select this rework flow
+    this.selectedReworkFlow = {
+        from: rework.from,
+        to: rework.to,
+        element: element
+    };
+    element.classList.add('selected');
+}
+
+deselectReworkFlow() {
+    if (this.selectedReworkFlow && this.selectedReworkFlow.element) {
+        this.selectedReworkFlow.element.classList.remove('selected');
+    }
+    this.selectedReworkFlow = null;
+}
+
+deleteSelectedReworkFlow() {
+    if (!this.selectedReworkFlow) return;
+
+    const {from, to} = this.selectedReworkFlow;
+
+    // Remove from array
+    this.currentReworkFlows = this.currentReworkFlows.filter(
+        rf => !(rf.from === from && rf.to === to)
+    );
+
+    // Clear selection
+    this.deselectReworkFlow();
+
+    // Redraw and save
+    this.drawReworkFlows();
+    this.saveState();
 }
 
     // Process selection helpers
@@ -1484,6 +1577,59 @@ addFlowConnectionPoint(group, processId, pos) {
     controlsLayer.appendChild(connGroup);
 }
 
+addReworkConnectionPoint(group, processId, pos) {
+    const connectionRadius = 10;
+    // Position halfway across the bottom line of the process box
+    const x = pos.x + this.processWidth / 2;
+    const y = pos.y + this.processHeight;
+
+    // Create a group for the rework connection control
+    const reworkGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    reworkGroup.setAttribute('class', 'rework-connection-point');
+    reworkGroup.setAttribute('data-rework-connection-for', processId);
+
+    // Circle (styled with dashed stroke to indicate rework)
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', x);
+    circle.setAttribute('cy', y);
+    circle.setAttribute('r', connectionRadius);
+    circle.setAttribute('fill', 'white');
+    circle.setAttribute('stroke', '#e74c3c'); // Red color for rework
+    circle.setAttribute('stroke-width', '2');
+    circle.setAttribute('stroke-dasharray', '3,3'); // Dashed stroke
+    circle.style.opacity = '0.9';
+
+    // 'R' symbol for Rework
+    const rText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    rText.setAttribute('x', x);
+    rText.setAttribute('y', y + 1);
+    rText.setAttribute('text-anchor', 'middle');
+    rText.setAttribute('dominant-baseline', 'middle');
+    rText.setAttribute('font-size', '12');
+    rText.setAttribute('font-weight', 'bold');
+    rText.setAttribute('class', 'rework-connection-symbol');
+    rText.style.cursor = 'pointer';
+    rText.style.fill = '#e74c3c';
+    rText.textContent = 'R';
+
+    reworkGroup.appendChild(circle);
+    reworkGroup.appendChild(rText);
+
+    // Make everything interactive
+    reworkGroup.style.pointerEvents = 'auto';
+    reworkGroup.style.cursor = 'pointer';
+
+    // Start rework drag when clicking the control
+    reworkGroup.addEventListener('mousedown', (evt) => {
+        evt.stopPropagation();
+        this.startReworkDrag(evt, processId);
+    });
+
+    // Append the rework connection point group to the controls layer
+    const controlsLayer = this.svg.querySelector('#controls-layer') || this.svg;
+    controlsLayer.appendChild(reworkGroup);
+}
+
     // Helper to generate a new unique process id based on a base id.
     generateNewProcessId(baseId) {
         if (!this.currentProcesses) return `${baseId}_1`;
@@ -1589,6 +1735,225 @@ endFlowDrag(evt) {
     this.isDraggingFlow = false;
     this.flowDragStart = null;
 }
+
+startReworkDrag(evt, fromProcessId) {
+    this.isDraggingRework = true;
+
+    // Get the rework connection point coordinates
+    let startX = null, startY = null;
+    if (evt && evt.target) {
+        let el = null;
+        try { el = evt.target.closest('.rework-connection-point'); } catch (e) { el = null; }
+        if (el && el.classList && el.classList.contains('rework-connection-point')) {
+            const c = el.querySelector('circle');
+            if (c) {
+                const cx = parseFloat(c.getAttribute('cx'));
+                const cy = parseFloat(c.getAttribute('cy'));
+                if (!isNaN(cx) && !isNaN(cy)) {
+                    startX = cx;
+                    startY = cy;
+                }
+            }
+        }
+    }
+
+    if (startX === null || startY === null) {
+        const pt = this.svg.createSVGPoint();
+        pt.x = evt.clientX;
+        pt.y = evt.clientY;
+        const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+        startX = svgP.x;
+        startY = svgP.y;
+    }
+
+    this.reworkDragStart = {
+        processId: fromProcessId,
+        x: startX,
+        y: startY
+    };
+
+    // Create temporary line (dotted)
+    this.tempReworkLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    this.tempReworkLine.setAttribute('class', 'temp-rework-line');
+    this.tempReworkLine.setAttribute('stroke', '#e74c3c');
+    this.tempReworkLine.setAttribute('stroke-width', '2');
+    this.tempReworkLine.setAttribute('stroke-dasharray', '5,5');
+    this.tempReworkLine.setAttribute('fill', 'none');
+    this.svg.appendChild(this.tempReworkLine);
+
+    evt.preventDefault();
+}
+
+dragRework(evt) {
+    if (!this.isDraggingRework || !this.tempReworkLine) return;
+
+    const pt = this.svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+
+    // Draw line from start to current position
+    const path = `M ${this.reworkDragStart.x} ${this.reworkDragStart.y} L ${svgP.x} ${svgP.y}`;
+    this.tempReworkLine.setAttribute('d', path);
+
+    // Check if over a valid target (can connect to any process except self)
+    const targetProcess = this.getProcessAtPoint(svgP.x, svgP.y);
+    if (targetProcess && targetProcess !== this.reworkDragStart.processId) {
+        this.tempReworkLine.setAttribute('stroke', '#27ae60'); // Green when valid
+    } else {
+        this.tempReworkLine.setAttribute('stroke', '#e74c3c'); // Red when invalid
+    }
+}
+
+endReworkDrag(evt) {
+    if (!this.isDraggingRework) return;
+
+    const pt = this.svg.createSVGPoint();
+    pt.x = evt.clientX;
+    pt.y = evt.clientY;
+    const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+
+    // Check if over a valid target
+    const targetProcess = this.getProcessAtPoint(svgP.x, svgP.y);
+    if (targetProcess && targetProcess !== this.reworkDragStart.processId) {
+        this.createReworkFlow(this.reworkDragStart.processId, targetProcess);
+    }
+
+    // Cleanup
+    if (this.tempReworkLine) {
+        this.svg.removeChild(this.tempReworkLine);
+        this.tempReworkLine = null;
+    }
+    this.isDraggingRework = false;
+    this.reworkDragStart = null;
+}
+
+createReworkFlow(fromId, toId) {
+    // Check if rework flow already exists
+    const exists = this.currentReworkFlows.some(rf => rf.from === fromId && rf.to === toId);
+    if (exists) {
+        console.log('Rework flow already exists from', fromId, 'to', toId);
+        return;
+    }
+
+    // Add the rework flow
+    console.log('Creating rework flow from', fromId, 'to', toId);
+    this.currentReworkFlows.push({ from: fromId, to: toId });
+    console.log('Current rework flows:', this.currentReworkFlows);
+
+    // Redraw
+    this.drawReworkFlows();
+
+    // Save state
+    this.saveState();
+}
+
+drawReworkFlows() {
+    console.log('Drawing rework flows:', this.currentReworkFlows);
+    
+    // Save selected rework flow IDs if one is selected
+    const selectedReworkIds = this.selectedReworkFlow ? {
+        from: this.selectedReworkFlow.from,
+        to: this.selectedReworkFlow.to
+    } : null;
+
+    // Clear selection reference before removing elements
+    if (this.selectedReworkFlow) {
+        this.selectedReworkFlow = null;
+    }
+    
+    // Remove existing rework flow groups
+    const existingRework = this.svg.querySelectorAll('.rework-flow-group');
+    existingRework.forEach(el => el.remove());
+
+    // Check if currentReworkFlows exists and has content
+    if (!this.currentReworkFlows || this.currentReworkFlows.length === 0) {
+        console.log('No rework flows to draw');
+        return;
+    }
+
+    // Get the first non-defs child to insert before (so rework lines render behind process boxes but after defs)
+    let insertBeforeNode = this.svg.firstChild;
+    while (insertBeforeNode && insertBeforeNode.tagName === 'defs') {
+        insertBeforeNode = insertBeforeNode.nextSibling;
+    }
+
+    // Draw each rework flow
+    this.currentReworkFlows.forEach(rework => {
+        console.log('Drawing rework flow from', rework.from, 'to', rework.to);
+        const fromPos = this.positions[rework.from];
+        const toPos = this.positions[rework.to];
+        if (!fromPos || !toPos) return;
+
+        // Start from bottom of source process (at the rework connection point)
+        const startX = fromPos.x + this.processWidth / 2;
+        const startY = fromPos.y + this.processHeight;
+
+        // End at bottom of target process (at the rework connection point)
+        const endX = toPos.x + this.processWidth / 2;
+        const endY = toPos.y + this.processHeight;
+
+        // Create a curved path that goes down and across
+        const midY = Math.max(startY, endY) + 30;
+        const path = `M ${startX} ${startY} Q ${startX} ${midY}, ${(startX + endX) / 2} ${midY} T ${endX} ${endY}`;
+
+        // Create a group to hold both the hit area and visible line
+        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        group.setAttribute('class', 'rework-flow-group');
+
+        // Create the visible dotted line
+        const reworkLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        reworkLine.setAttribute('d', path);
+        reworkLine.setAttribute('class', 'rework-flow-line');
+        reworkLine.setAttribute('data-rework-from', rework.from);
+        reworkLine.setAttribute('data-rework-to', rework.to);
+        reworkLine.style.pointerEvents = 'none'; // Visual only
+
+        // Create an invisible wider path for easier clicking
+        const hitArea = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        hitArea.setAttribute('d', path);
+        hitArea.setAttribute('stroke', 'transparent');
+        hitArea.setAttribute('stroke-width', '20');
+        hitArea.setAttribute('fill', 'none');
+        hitArea.setAttribute('cursor', 'pointer');
+        hitArea.setAttribute('data-rework-from', rework.from);
+        hitArea.setAttribute('data-rework-to', rework.to);
+
+        // Add click handler to the hit area
+        hitArea.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            this.selectReworkFlow(rework, reworkLine, evt);
+        });
+
+        // Add both to the group
+        group.appendChild(reworkLine);
+        group.appendChild(hitArea);
+
+        // Insert the group at the beginning (behind process boxes)
+        this.svg.insertBefore(group, insertBeforeNode);
+    });
+
+    // Restore selection if there was one
+    if (selectedReworkIds) {
+        const reworkLineToSelect = this.svg.querySelector(
+            `.rework-flow-line[data-rework-from="${selectedReworkIds.from}"][data-rework-to="${selectedReworkIds.to}"]`
+        );
+        if (reworkLineToSelect) {
+            const rework = this.currentReworkFlows.find(
+                rf => rf.from === selectedReworkIds.from && rf.to === selectedReworkIds.to
+            );
+            if (rework) {
+                this.selectedReworkFlow = {
+                    from: rework.from,
+                    to: rework.to,
+                    element: reworkLineToSelect
+                };
+                reworkLineToSelect.classList.add('selected');
+            }
+        }
+    }
+}
+
 
 getProcessAtPoint(x, y) {
     // Prefer DOM-based hit testing (reads rect attributes) to avoid stale coord issues

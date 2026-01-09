@@ -3,6 +3,7 @@ export default class VSMParser {
         this.processes = {};
         this.flows = [];
         this.infoFlows = [];
+        this.reworkFlows = [];
         this.positions = {};
     }
 
@@ -10,6 +11,7 @@ export default class VSMParser {
         this.processes = {};
         this.flows = [];
         this.infoFlows = [];
+        this.reworkFlows = [];
         this.positions = {};
         
         let currentBlock = null;
@@ -35,6 +37,11 @@ export default class VSMParser {
                     currentBlockType = 'flow';
                     currentBlock = { from: match[1], to: match[2] };
                     this.flows.push(currentBlock);
+                }
+            } else if (line.startsWith('rework from ')) {
+                const match = line.match(/rework from\s+(\w+)\s+to\s+(\w+)/);
+                if (match) {
+                    this.reworkFlows.push({ from: match[1], to: match[2] });
                 }
             } else if (line === 'positions {') {
                 currentBlockType = 'positions';
@@ -68,6 +75,7 @@ export default class VSMParser {
             processes: this.processes,
             flows: this.flows,
             infoFlows: this.infoFlows,
+            reworkFlows: this.reworkFlows,
             positions: this.positions
         };
     }
@@ -97,6 +105,14 @@ export default class VSMParser {
             dsl += '}\n\n';
         });
         
+        // Serialize rework flows
+        if (data.reworkFlows && data.reworkFlows.length > 0) {
+            data.reworkFlows.forEach(rework => {
+                dsl += `rework from ${rework.from} to ${rework.to}\n`;
+            });
+            dsl += '\n';
+        }
+        
         // Serialize positions if they exist
         if (Object.keys(data.positions).length > 0) {
             dsl += 'positions {\n';
@@ -114,18 +130,29 @@ export default class VSMParser {
         const dslText = editorElem.value;
         const parsedData = this.parse(dslText);
         
-        // If we have positions in localStorage, add them to the DSL
+        // If we have positions or rework flows in localStorage, add them to the DSL
         const savedVSM = localStorage.getItem('vsmState');
         if (savedVSM) {
             try {
                 const savedData = JSON.parse(savedVSM);
+                let needsUpdate = false;
+                
                 if (savedData.positions && Object.keys(savedData.positions).length > 0) {
                     parsedData.positions = savedData.positions;
-                    // Update the editor with the positions included
+                    needsUpdate = true;
+                }
+                
+                if (savedData.reworkFlows && savedData.reworkFlows.length > 0) {
+                    parsedData.reworkFlows = savedData.reworkFlows;
+                    needsUpdate = true;
+                }
+                
+                if (needsUpdate) {
+                    // Update the editor with the positions and rework flows included
                     editorElem.value = this.serialize(parsedData);
                 }
             } catch (e) {
-                console.error('Error loading saved positions:', e);
+                console.error('Error loading saved data:', e);
             }
         }
         
