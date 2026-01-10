@@ -1355,12 +1355,13 @@ export default class VSMVisualizer {
 
     createNewProcess(baseId, newId) {
         const baseProcess = this.currentProcesses[baseId];
+        const baseName = baseProcess.attributes.name || 'Process';
         return {
             attributes: {
                 stage_id: parseInt(baseProcess.attributes.stage_id || 1) + 1,
-                name: `New ${baseProcess.attributes.name || baseId}`,
+                name: `New ${baseName}`,
                 owner: baseProcess.attributes.owner || '',
-                description: `New process derived from ${baseId}`,
+                description: `New process derived from ${baseName}`,
                 wait_time: '0d',
                 process_time: '0s',
                 defect_rate: '0'
@@ -1710,17 +1711,166 @@ addReworkConnectionPoint(group, processId, pos) {
 }
 
     // Helper to generate a new unique process id based on a base id.
-    generateNewProcessId(baseId) {
-        if (!this.currentProcesses) return `${baseId}_1`;
-        let i = 1;
-        let candidate = `${baseId}_${i}`;
-        while (this.currentProcesses[candidate]) {
-            i += 1;
-            candidate = `${baseId}_${i}`;
-            // Safety cap to avoid infinite loops
-            if (i > 10000) break;
+    generateProcessIdFromName(processName) {
+        // Convert process name to a slug (lowercase, underscores)
+        const slug = processName
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '_')  // Replace non-alphanumeric with underscore
+            .replace(/^_+|_+$/g, '');     // Remove leading/trailing underscores
+        
+        // Generate timestamp in format DDMMYYYYHHMMSS
+        const now = new Date();
+        const dd = String(now.getDate()).padStart(2, '0');
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const yyyy = String(now.getFullYear());
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+        const timestamp = `${dd}${mm}${yyyy}${hh}${min}${ss}`;
+        
+        let candidate = `${slug}_${timestamp}`;
+        
+        // Handle collisions (unlikely but possible)
+        if (this.currentProcesses && this.currentProcesses[candidate]) {
+            let counter = 1;
+            while (this.currentProcesses[`${candidate}_${counter}`]) {
+                counter++;
+                if (counter > 100) break; // Safety cap
+            }
+            candidate = `${candidate}_${counter}`;
         }
+        
         return candidate;
+    }
+
+    refactorProcessId(oldId, newId, newName) {
+        console.log(`refactorProcessId called: ${oldId} -> ${newId}, name: ${newName}`);
+        
+        // Don't do anything if IDs are the same
+        if (oldId === newId) {
+            console.log('IDs are the same, skipping refactor');
+            this.currentProcesses[oldId].attributes.name = newName;
+            this.updateDSLWithProcessAttribute(oldId, 'name', `"${newName}"`);
+            this.saveState();
+            return;
+        }
+
+        console.log('Refactoring process ID...');
+        
+        // 1. Update the process in currentProcesses
+        this.currentProcesses[newId] = { ...this.currentProcesses[oldId] };
+        this.currentProcesses[newId].attributes.name = newName;
+        delete this.currentProcesses[oldId];
+
+        // 2. Update all flow references (from/to)
+        this.currentFlows.forEach(flow => {
+            if (flow.from === oldId) flow.from = newId;
+            if (flow.to === oldId) flow.to = newId;
+        });
+
+        // 3. Update all rework flow references
+        if (this.currentReworkFlows) {
+            this.currentReworkFlows.forEach(rework => {
+                if (rework.from === oldId) rework.from = newId;
+                if (rework.to === oldId) rework.to = newId;
+            });
+        }
+
+        // 4. Update all info flow references
+        if (this.currentInfoFlows) {
+            this.currentInfoFlows.forEach(infoFlow => {
+                if (infoFlow.from === oldId) infoFlow.from = newId;
+                if (infoFlow.to === oldId) infoFlow.to = newId;
+            });
+        }
+
+        // 5. Update positions
+        this.positions[newId] = this.positions[oldId];
+        delete this.positions[oldId];
+
+        // 6. Update selected items if they reference the old ID
+        if (this.selectedProcess === oldId) {
+            this.selectedProcess = newId;
+        }
+        if (this.selectedFlow) {
+            if (this.selectedFlow.from === oldId) this.selectedFlow.from = newId;
+            if (this.selectedFlow.to === oldId) this.selectedFlow.to = newId;
+        }
+        if (this.selectedReworkFlow) {
+            if (this.selectedReworkFlow.from === oldId) this.selectedReworkFlow.from = newId;
+            if (this.selectedReworkFlow.to === oldId) this.selectedReworkFlow.to = newId;
+        }
+
+        // 7. Rebuild the entire DSL with updated IDs
+        this.rebuildDSL();
+
+        // 8. Redraw the visualization
+        this.visualize({
+            processes: this.currentProcesses,
+            flows: this.currentFlows,
+            infoFlows: this.currentInfoFlows,
+            reworkFlows: this.currentReworkFlows,
+            positions: this.positions
+        });
+
+        // 9. Save state
+        this.saveState();
+    }
+
+    rebuildDSL() {
+        const editor = document.getElementById('dslEditor');
+        if (!editor) return;
+
+        let dsl = '';
+
+        // Add all processes
+        Object.entries(this.currentProcesses).forEach(([processId, process]) => {
+            dsl += `\nprocess ${processId} {\n`;
+            dsl += `  stage_id: ${process.attributes.stage_id}\n`;
+            dsl += `  name: "${process.attributes.name}"\n`;
+            dsl += `  owner: "${process.attributes.owner}"\n`;
+            dsl += `  description: "${process.attributes.description}"\n`;
+            dsl += `  wait_time: ${process.attributes.wait_time}\n`;
+            dsl += `  process_time: ${process.attributes.process_time}\n`;
+            dsl += `  defect_rate: ${process.attributes.defect_rate}\n`;
+            dsl += `}\n`;
+        });
+
+        // Add all flows
+        this.currentFlows.forEach(flow => {
+            dsl += `\nflow from ${flow.from} to ${flow.to} {\n`;
+            dsl += `  wait_time: ${flow.wait_time}\n`;
+            dsl += `}\n`;
+        });
+
+        // Add all info flows
+        if (this.currentInfoFlows) {
+            this.currentInfoFlows.forEach(infoFlow => {
+                dsl += `\ninformation from ${infoFlow.from} to ${infoFlow.to}\n`;
+            });
+        }
+
+        // Add all rework flows
+        if (this.currentReworkFlows) {
+            this.currentReworkFlows.forEach(rework => {
+                dsl += `\nrework from ${rework.from} to ${rework.to}\n`;
+            });
+        }
+
+        // Add positions
+        dsl += `\npositions {\n`;
+        Object.entries(this.positions).forEach(([processId, pos]) => {
+            dsl += `  ${processId}: ${pos.x}, ${pos.y}\n`;
+        });
+        dsl += `}\n`;
+
+        editor.value = dsl;
+    }
+
+    generateNewProcessId(baseId) {
+        const baseProcess = this.currentProcesses[baseId];
+        const processName = baseProcess?.attributes?.name || 'process';
+        return this.generateProcessIdFromName(processName);
     }
 
 startFlowDrag(evt, fromProcessId) {
@@ -2438,11 +2588,13 @@ Focus improvement efforts here to reduce wait time.`;
 makeNameEditable(titleElement, processId) {
     let input = null;
     let isEditing = false;
+    let hasSaved = false;
     
     const startEdit = (evt) => {
         evt.stopPropagation();
         if (isEditing) return;
         isEditing = true;
+        hasSaved = false;
         
         input = document.createElement('input');
         input.type = 'text';
@@ -2458,21 +2610,30 @@ makeNameEditable(titleElement, processId) {
         input.style.borderRadius = '4px';
 
         const saveValue = () => {
-            if (!input) return false;
+            if (!input || hasSaved) return false;
             const newValue = input.value.trim();
             
-            if (newValue) {
-                // Update the process name
-                this.currentProcesses[processId].attributes.name = newValue;
-                titleElement.textContent = newValue;
+            if (newValue && this.currentProcesses[processId]) {
+                const oldName = this.currentProcesses[processId].attributes.name;
                 
-                // Update DSL
-                this.updateDSLWithProcessAttribute(processId, 'name', `"${newValue}"`);
-                
-                // Save state to ensure persistence
-                this.saveState();
-                
-                return true;
+                // If the name changed, update process ID based on new name
+                if (newValue !== oldName) {
+                    hasSaved = true;
+                    const newProcessId = this.generateProcessIdFromName(newValue);
+                    console.log(`Renaming process: "${oldName}" -> "${newValue}"`);
+                    console.log(`Changing ID: ${processId} -> ${newProcessId}`);
+                    
+                    // Refactor the process ID throughout the system
+                    this.refactorProcessId(processId, newProcessId, newValue);
+                    
+                    return true;
+                } else {
+                    // Name didn't change, just update DSL to be safe
+                    hasSaved = true;
+                    this.updateDSLWithProcessAttribute(processId, 'name', `"${newValue}"`);
+                    this.saveState();
+                    return true;
+                }
             }
             return false;
         };
@@ -2516,5 +2677,6 @@ makeNameEditable(titleElement, processId) {
     };
     
     titleElement.addEventListener('click', startEdit);
+    titleElement.style.cursor = 'pointer';
 }
 }

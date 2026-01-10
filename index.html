@@ -314,11 +314,33 @@ positions {
         }
 
         function addNewProcess() {
-            const processId = `process_${Date.now()}`;
+            // Generate ID from process name with timestamp
+            const processName = "New Process";
+            const slug = processName.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+            const now = new Date();
+            const dd = String(now.getDate()).padStart(2, '0');
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            const yyyy = String(now.getFullYear());
+            const hh = String(now.getHours()).padStart(2, '0');
+            const min = String(now.getMinutes()).padStart(2, '0');
+            const ss = String(now.getSeconds()).padStart(2, '0');
+            const timestamp = `${dd}${mm}${yyyy}${hh}${min}${ss}`;
+            let processId = `${slug}_${timestamp}`;
+            
+            // Handle collisions
+            if (visualizer.currentProcesses && visualizer.currentProcesses[processId]) {
+                let counter = 1;
+                while (visualizer.currentProcesses[`${processId}_${counter}`]) {
+                    counter++;
+                    if (counter > 100) break;
+                }
+                processId = `${processId}_${counter}`;
+            }
+            
             const newProcess = {
                 attributes: {
                     stage_id: 1,
-                    name: "New Process",
+                    name: processName,
                     owner: "",
                     description: "New process description",
                     wait_time: "0d",
