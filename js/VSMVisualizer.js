@@ -75,7 +75,129 @@ export default class VSMVisualizer {
                 this.makeWaitTimeEditable(waitLabel, flow);
                 this.svg.appendChild(waitLabel);
             }
+            
+            // Add flow value type badge
+            this.addFlowValueTypeBadge(flow, labelPosition);
         });
+    }
+
+    addFlowValueTypeBadge(flow, labelPosition) {
+        // Flows can only be NVA or NNVA (waiting is never value-adding)
+        const valueType = flow.value_type || 'NVA';
+        const badgeWidth = 35;
+        const badgeHeight = 14;
+        const badgeX = labelPosition.x - badgeWidth / 2;
+        const badgeY = labelPosition.y + 5; // Below the wait time label
+        
+        // Color coding for value types (no VA for flows)
+        const colors = {
+            'NVA': { bg: '#e74c3c', text: '#fff' },  // Red for Non-Value Add
+            'NNVA': { bg: '#f39c12', text: '#fff' }  // Orange for Necessary Non-Value Add
+        };
+        
+        const color = colors[valueType] || colors['VA'];
+        
+        // Create badge rectangle
+        const badge = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        badge.setAttribute('x', badgeX);
+        badge.setAttribute('y', badgeY);
+        badge.setAttribute('width', badgeWidth);
+        badge.setAttribute('height', badgeHeight);
+        badge.setAttribute('rx', '3');
+        badge.setAttribute('fill', color.bg);
+        badge.setAttribute('class', 'flow-value-type-badge');
+        badge.setAttribute('data-flow-from', flow.from);
+        badge.setAttribute('data-flow-to', flow.to);
+        badge.style.cursor = 'pointer';
+        
+        // Create badge text
+        const badgeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        badgeText.setAttribute('x', labelPosition.x);
+        badgeText.setAttribute('y', badgeY + badgeHeight / 2 + 1);
+        badgeText.setAttribute('text-anchor', 'middle');
+        badgeText.setAttribute('dominant-baseline', 'middle');
+        badgeText.setAttribute('font-size', '9');
+        badgeText.setAttribute('font-weight', 'bold');
+        badgeText.setAttribute('fill', color.text);
+        badgeText.setAttribute('class', 'flow-value-type-text');
+        badgeText.style.pointerEvents = 'none';
+        badgeText.textContent = valueType;
+        
+        // Add tooltip
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        const tooltips = {
+            'NVA': 'Non-Value Add: pure waste; can be removed without harming outcome',
+            'NNVA': 'Necessary Non-Value Add: not value-add, but currently required due to constraints'
+        };
+        title.textContent = `${tooltips[valueType] || 'Unknown value type'}\nClick to toggle (flows cannot be VA - waiting is never value-adding)`;
+        badge.appendChild(title);
+        
+        // Click handler to cycle through value types
+        badge.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            this.cycleFlowValueType(flow);
+        });
+        
+        this.svg.appendChild(badge);
+        this.svg.appendChild(badgeText);
+    }
+
+    cycleFlowValueType(flow) {
+        // Flows can only be NVA or NNVA (waiting is never value-adding)
+        const currentType = flow.value_type || 'NVA';
+        const types = ['NVA', 'NNVA'];
+        const currentIndex = types.indexOf(currentType);
+        const newType = types[(currentIndex + 1) % types.length];
+        
+        flow.value_type = newType;
+        
+        // Update DSL
+        this.updateDSLWithFlowValueType(flow);
+        
+        // Redraw
+        this.redrawFlows();
+        
+        this.saveState();
+    }
+
+    updateDSLWithFlowValueType(flow) {
+        const editor = document.getElementById('dslEditor');
+        if (!editor) return;
+
+        let dslText = editor.value;
+        
+        // Find the flow block and update it
+        const flowRegex = new RegExp(
+            `flow from ${flow.from} to ${flow.to}\\s*\\{([^}]*)\\}`,
+            's'
+        );
+        
+        const match = dslText.match(flowRegex);
+        if (match) {
+            let flowContent = match[1];
+            
+            // Check if value_type already exists
+            if (/value_type:/.test(flowContent)) {
+                // Update existing value_type
+                flowContent = flowContent.replace(
+                    /value_type:\s*"?\w+"?/,
+                    `value_type: "${flow.value_type}"`
+                );
+            } else {
+                // Add value_type after wait_time
+                flowContent = flowContent.replace(
+                    /(wait_time:\s*[^\n]+)/,
+                    `$1\n  value_type: "${flow.value_type}"`
+                );
+            }
+            
+            dslText = dslText.replace(
+                flowRegex,
+                `flow from ${flow.from} to ${flow.to} {${flowContent}}`
+            );
+            
+            editor.value = dslText;
+        }
     }
 
     setupSVG() {
@@ -332,6 +454,9 @@ export default class VSMVisualizer {
             owner.setAttribute('font-style', 'italic');
             owner.textContent = process.attributes.owner || '';
             group.appendChild(owner);
+
+            // Value Type badge (VA/NVA/NNVA)
+            this.addValueTypeBadge(group, processId, pos, process.attributes.value_type || 'VA');
 
             // Add plus symbol for adding new processes
             this.addPlusSymbol(group, processId, pos);
@@ -597,7 +722,7 @@ export default class VSMVisualizer {
         }
 
         // Remove all flow elements
-        this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label').forEach(el => el.remove());
+        this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label, .flow-value-type-badge, .flow-value-type-text').forEach(el => el.remove());
 
         // Redraw all flows
         this.drawFlows(this.currentFlows, this.positions);
@@ -1137,6 +1262,22 @@ export default class VSMVisualizer {
                 return sum;
             }, 0);
 
+        // Calculate value-adding process time for PCE (only VA processes)
+        // NNVA and NVA are excluded - only true value-adding work counts
+        const valueAddingProcessTime = criticalPath
+            .reduce((sum, processId) => {
+                const process = this.currentProcesses[processId];
+                if (process) {
+                    const valueType = process.attributes.value_type || 'VA';
+                    // Only include VA processes in PCE calculation
+                    if (valueType === 'VA') {
+                        const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
+                        return sum + ptTime;
+                    }
+                }
+                return sum;
+            }, 0);
+
         // Calculate total process wait time (sum of ONLY critical path process wait times)
         const totalProcessWaitTime = criticalPath
             .reduce((sum, processId) => {
@@ -1160,8 +1301,9 @@ export default class VSMVisualizer {
         // Total Lead Time is the critical path time (longest path through the value stream)
         const totalLeadTime = this.criticalPathData.time || 0;
 
-        // Calculate PCE (Process Cycle Efficiency) = (Total Process Time / Total Lead Time) * 100
-        const pce = totalLeadTime > 0 ? (totalProcessTime / totalLeadTime) * 100 : 0;
+        // Calculate PCE (Process Cycle Efficiency) = (VA Process Time / Total Lead Time) * 100
+        // Only counts process time from Value Add processes (excludes NNVA and NVA)
+        const pce = totalLeadTime > 0 ? (valueAddingProcessTime / totalLeadTime) * 100 : 0;
 
         // Create critical path display with process names
         const criticalPathNames = criticalPath.map(processId => {
@@ -1204,6 +1346,95 @@ export default class VSMVisualizer {
     }
 
     // Add these new methods to the VSMVisualizer class
+
+    addValueTypeBadge(group, processId, pos, valueType) {
+        // Position the badge at bottom-left corner of the process box
+        const badgeWidth = 35;
+        const badgeHeight = 16;
+        const badgeX = pos.x + 5;
+        const badgeY = pos.y + this.processHeight - badgeHeight - 5;
+        
+        // Color coding for value types
+        const colors = {
+            'VA': { bg: '#27ae60', text: '#fff' },   // Green for Value Add
+            'NVA': { bg: '#e74c3c', text: '#fff' },  // Red for Non-Value Add
+            'NNVA': { bg: '#f39c12', text: '#fff' }  // Orange for Necessary Non-Value Add
+        };
+        
+        const color = colors[valueType] || colors['VA'];
+        
+        // Create badge rectangle
+        const badge = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        badge.setAttribute('x', badgeX);
+        badge.setAttribute('y', badgeY);
+        badge.setAttribute('width', badgeWidth);
+        badge.setAttribute('height', badgeHeight);
+        badge.setAttribute('rx', '3');
+        badge.setAttribute('fill', color.bg);
+        badge.setAttribute('class', 'value-type-badge');
+        badge.setAttribute('data-process-id', processId);
+        badge.style.cursor = 'pointer';
+        
+        // Create badge text
+        const badgeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        badgeText.setAttribute('x', badgeX + badgeWidth / 2);
+        badgeText.setAttribute('y', badgeY + badgeHeight / 2 + 1);
+        badgeText.setAttribute('text-anchor', 'middle');
+        badgeText.setAttribute('dominant-baseline', 'middle');
+        badgeText.setAttribute('font-size', '10');
+        badgeText.setAttribute('font-weight', 'bold');
+        badgeText.setAttribute('fill', color.text);
+        badgeText.setAttribute('class', 'value-type-text');
+        badgeText.setAttribute('data-process-id', processId);
+        badgeText.style.cursor = 'pointer';
+        badgeText.style.pointerEvents = 'none';
+        badgeText.textContent = valueType;
+        
+        // Add tooltip
+        const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        const tooltips = {
+            'VA': 'Value Add: transforms the product/service in a way the customer is willing to pay for',
+            'NVA': 'Non-Value Add: pure waste; can be removed without harming outcome',
+            'NNVA': 'Necessary Non-Value Add: not value-add, but currently required due to constraints'
+        };
+        title.textContent = `${tooltips[valueType] || 'Unknown value type'}\nClick to change`;
+        badge.appendChild(title);
+        
+        // Click handler to cycle through value types
+        badge.addEventListener('click', (evt) => {
+            evt.stopPropagation();
+            this.cycleValueType(processId);
+        });
+        
+        group.appendChild(badge);
+        group.appendChild(badgeText);
+    }
+
+    cycleValueType(processId) {
+        const process = this.currentProcesses[processId];
+        if (!process) return;
+        
+        const currentType = process.attributes.value_type || 'VA';
+        const types = ['VA', 'NVA', 'NNVA'];
+        const currentIndex = types.indexOf(currentType);
+        const newType = types[(currentIndex + 1) % types.length];
+        
+        process.attributes.value_type = newType;
+        
+        // Update DSL
+        this.updateDSLWithProcessAttribute(processId, 'value_type', `"${newType}"`);
+        
+        // Redraw
+        this.visualize({
+            processes: this.currentProcesses,
+            flows: this.currentFlows,
+            infoFlows: this.currentInfoFlows,
+            reworkFlows: this.currentReworkFlows,
+            positions: this.positions
+        });
+        
+        this.saveState();
+    }
 
     addPlusSymbol(group, processId, pos) {
         // Compute positions so the add-circle sits directly under the
@@ -1268,7 +1499,8 @@ export default class VSMVisualizer {
             const newFlow = {
                 from: processId,
                 to: newId,
-                wait_time: '0.5d'
+                wait_time: '0.5d',
+                value_type: 'NVA'  // Flows are never VA (waiting is non-value-adding)
             };
             this.currentFlows.push(newFlow);
             
@@ -1364,7 +1596,8 @@ export default class VSMVisualizer {
                 description: `New process derived from ${baseName}`,
                 wait_time: '0d',
                 process_time: '0s',
-                defect_rate: '0'
+                defect_rate: '0',
+                value_type: 'VA'
             }
         };
     }
@@ -1382,11 +1615,13 @@ export default class VSMVisualizer {
   wait_time: ${process.attributes.wait_time}
   process_time: ${process.attributes.process_time}
   defect_rate: ${process.attributes.defect_rate}
+  value_type: "${process.attributes.value_type || 'VA'}"
 }\n`;
 
     // Add new flow
     const flowBlock = `\nflow from ${flow.from} to ${flow.to} {
   wait_time: ${flow.wait_time}
+  value_type: "${flow.value_type || 'NVA'}"
 }\n`;
 
     // Insert before positions block if it exists
@@ -1833,6 +2068,7 @@ addReworkConnectionPoint(group, processId, pos) {
             dsl += `  wait_time: ${process.attributes.wait_time}\n`;
             dsl += `  process_time: ${process.attributes.process_time}\n`;
             dsl += `  defect_rate: ${process.attributes.defect_rate}\n`;
+            dsl += `  value_type: "${process.attributes.value_type || 'VA'}"\n`;
             dsl += `}\n`;
         });
 
@@ -1840,6 +2076,7 @@ addReworkConnectionPoint(group, processId, pos) {
         this.currentFlows.forEach(flow => {
             dsl += `\nflow from ${flow.from} to ${flow.to} {\n`;
             dsl += `  wait_time: ${flow.wait_time}\n`;
+            dsl += `  value_type: "${flow.value_type || 'NVA'}"\n`;
             dsl += `}\n`;
         });
 
@@ -2242,7 +2479,8 @@ createFlow(fromId, toId) {
     const newFlow = {
         from: fromId,
         to: toId,
-        wait_time: '0d'
+        wait_time: '0d',
+        value_type: 'NVA'  // Flows are never VA (waiting is non-value-adding)
     };
 
     // Add to currentFlows
@@ -2298,7 +2536,7 @@ redrawFlows() {
     }
 
     // Remove all flow elements
-    this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label').forEach(el => el.remove());
+    this.svg.querySelectorAll('.flow-line, .info-flow-line, .wait-time-label, .flow-value-type-badge, .flow-value-type-text').forEach(el => el.remove());
 
     // Redraw all flows
     this.drawFlows(this.currentFlows, this.positions);

@@ -214,6 +214,7 @@ positions {
   wait_time: 0d
   process_time: 0s
   defect_rate: 0
+  value_type: "VA"
 }`;
 
             // Set the DSL editor
@@ -228,7 +229,8 @@ positions {
                     description: "New process description",
                     wait_time: "0d",
                     process_time: "0s",
-                    defect_rate: "0"
+                    defect_rate: "0",
+                    value_type: "VA"
                 }
             };
 
@@ -345,7 +347,8 @@ positions {
                     description: "New process description",
                     wait_time: "0d",
                     process_time: "0s",
-                    defect_rate: "0"
+                    defect_rate: "0",
+                    value_type: "VA"
                 }
             };
 
@@ -367,6 +370,7 @@ positions {
   wait_time: 0d
   process_time: 0s
   defect_rate: 0
+  value_type: "VA"
 }\n`;
             
             dslEditor.value += processBlock;
@@ -590,16 +594,44 @@ positions {
                 return sum;
             }, 0);
 
+            // Calculate Value-Adding Process Time (VA only, excludes NNVA and NVA)
+            const valueAddingProcessTime = criticalPath.reduce((sum, processId) => {
+                const process = visualizer.currentProcesses[processId];
+                if (process) {
+                    const valueType = process.attributes.value_type || 'VA';
+                    if (valueType === 'VA') {
+                        return sum + visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                    }
+                }
+                return sum;
+            }, 0);
+
+            // Count processes by value type
+            const vaCount = criticalPath.filter(pid => {
+                const p = visualizer.currentProcesses[pid];
+                return p && (p.attributes.value_type || 'VA') === 'VA';
+            }).length;
+            const nnvaCount = criticalPath.filter(pid => {
+                const p = visualizer.currentProcesses[pid];
+                return p && p.attributes.value_type === 'NNVA';
+            }).length;
+            const nvaCount = criticalPath.filter(pid => {
+                const p = visualizer.currentProcesses[pid];
+                return p && p.attributes.value_type === 'NVA';
+            }).length;
+
             // Get Total Lead Time (critical path time)
             const totalLeadTime = visualizer.criticalPathData.time || 0;
 
-            // Calculate PCE
-            const pce = totalLeadTime > 0 ? (totalProcessTime / totalLeadTime) * 100 : 0;
+            // Calculate PCE using value-adding time only
+            const pce = totalLeadTime > 0 ? (valueAddingProcessTime / totalLeadTime) * 100 : 0;
 
             let html = '<div style="margin-bottom: 20px;">';
             html += '<p style="font-size: 14px; line-height: 1.6; color: #2c3e50;">';
-            html += '<strong>Process Cycle Efficiency (PCE)</strong> measures the percentage of time that adds value to the product or service. ';
-            html += 'It compares the time spent on value-adding activities (Process Time) to the total time from start to finish (Lead Time).';
+            html += '<strong>Process Cycle Efficiency (PCE)</strong> measures the percentage of time that truly adds value to the product or service. ';
+            html += 'It only counts process time from <span style="color: #27ae60; font-weight: bold;">VA</span> (Value Add) processes. ';
+            html += '<span style="color: #f39c12; font-weight: bold;">NNVA</span> (Necessary Non-Value Add) and ';
+            html += '<span style="color: #e74c3c; font-weight: bold;">NVA</span> (Non-Value Add) processes are excluded.';
             html += '</p>';
             html += '</div>';
 
@@ -607,7 +639,7 @@ positions {
             html += '<div style="background: #ecf0f1; padding: 15px; border-radius: 5px; margin-bottom: 20px;">';
             html += '<div style="text-align: center; font-size: 16px; margin-bottom: 10px;"><strong>Formula:</strong></div>';
             html += '<div style="text-align: center; font-size: 14px; font-family: monospace; color: #2c3e50;">';
-            html += 'PCE = (Total Process Time / Total Lead Time) × 100';
+            html += 'PCE = (VA Process Time / Total Lead Time) × 100';
             html += '</div>';
             html += '</div>';
 
@@ -615,9 +647,22 @@ positions {
             html += '<div style="background: #fff; border: 1px solid #bdc3c7; border-radius: 5px; padding: 15px; margin-bottom: 20px;">';
             html += '<div style="text-align: center; font-size: 16px; margin-bottom: 15px;"><strong>Calculation:</strong></div>';
             
+            // Show process counts by type
+            html += '<div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">';
+            html += '<div style="font-size: 12px; margin-bottom: 8px;"><strong>Processes on Critical Path:</strong></div>';
+            html += `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: #27ae60; color: white; border-radius: 3px; font-size: 11px;">VA: ${vaCount}</span>`;
+            html += `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: #f39c12; color: white; border-radius: 3px; font-size: 11px;">NNVA: ${nnvaCount}</span>`;
+            html += `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: #e74c3c; color: white; border-radius: 3px; font-size: 11px;">NVA: ${nvaCount}</span>`;
+            html += '</div>';
+            
             html += '<div class="breakdown-row" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ecf0f1;">';
-            html += '<div class="breakdown-name">Total Process Time (Critical Path)</div>';
-            html += `<div class="breakdown-value">${totalProcessTime.toFixed(2)}d</div>`;
+            html += '<div class="breakdown-name">VA Process Time (value-adding)</div>';
+            html += `<div class="breakdown-value" style="color: #27ae60;">${valueAddingProcessTime.toFixed(2)}d</div>`;
+            html += '</div>';
+
+            html += '<div class="breakdown-row" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ecf0f1; color: #7f8c8d;">';
+            html += '<div class="breakdown-name" style="color: #7f8c8d;">Total Process Time (all types)</div>';
+            html += `<div class="breakdown-value" style="color: #7f8c8d;">${totalProcessTime.toFixed(2)}d</div>`;
             html += '</div>';
 
             html += '<div class="breakdown-row" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ecf0f1;">';
@@ -642,11 +687,12 @@ positions {
             } else if (pce >= 10) {
                 html += '<li>Your PCE is <strong>typical</strong> for many processes.</li>';
             } else {
-                html += '<li>Your PCE indicates significant waiting time.</li>';
+                html += '<li>Your PCE indicates significant waiting time or waste.</li>';
             }
             
             html += '<li>Higher PCE means more value-added time relative to total time.</li>';
-            html += '<li>To improve PCE: reduce wait times and non-value-added activities.</li>';
+            html += '<li>To improve PCE: reduce wait times and convert NNVA/NVA to VA where possible.</li>';
+            html += '<li>Eliminate NVA processes; minimize NNVA processes.</li>';
             html += '<li>World-class manufacturers often target PCE > 25%.</li>';
             html += '</ul>';
             html += '</div>';

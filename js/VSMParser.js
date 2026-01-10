@@ -67,7 +67,8 @@ export default class VSMParser {
                 }
             } else if (currentBlock && currentBlockType === 'flow') {
                 const [key, value] = line.split(':').map(part => part.trim());
-                currentBlock[key] = value;
+                // Strip quotes from value_type
+                currentBlock[key] = value.replace(/"/g, '');
             }
         }
         
@@ -101,6 +102,9 @@ export default class VSMParser {
             dsl += `flow from ${flow.from} to ${flow.to} {\n`;
             if (flow.wait_time) {
                 dsl += `  wait_time: ${flow.wait_time}\n`;
+            }
+            if (flow.value_type) {
+                dsl += `  value_type: "${flow.value_type}"\n`;
             }
             dsl += '}\n\n';
         });
