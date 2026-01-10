@@ -301,12 +301,10 @@ export default class VSMVisualizer {
 
             // Process attributes
             const calculatedCT = this.calculateCycleTime(process);
-            const defectRateValue = process.attributes.defect_rate || '0';
             const attributes = [
                 { key: 'PT', value: process.attributes.process_time || 'N/A', attr: 'process_time' },
                 { key: 'WT', value: process.attributes.wait_time || 'N/A', attr: 'wait_time' },
-                { key: 'CT', value: calculatedCT, attr: 'cycle_time', calculated: true },
-                { key: 'Rework Rate', value: `${defectRateValue}%`, attr: 'defect_rate' }
+                { key: 'CT', value: calculatedCT, attr: 'cycle_time', calculated: true }
             ];
 
             attributes.forEach((attr, i) => {
@@ -316,13 +314,8 @@ export default class VSMVisualizer {
                 detailText.setAttribute('class', 'process-details');
                 detailText.textContent = `${attr.key}: ${attr.value}`;
                 
-                // Add data attribute for rework rate labels so we can identify and highlight them
-                if (attr.attr === 'defect_rate') {
-                    detailText.setAttribute('data-rework-rate', processId);
-                }
-                
-                // Make time-based attributes editable (except calculated CT), and defect_rate
-                if ((attr.attr.includes('time') && !attr.calculated) || attr.attr === 'defect_rate') {
+                // Make time-based attributes editable (except calculated CT)
+                if (attr.attr.includes('time') && !attr.calculated) {
                     this.makeAttributeEditable(detailText, processId, attr.attr, attr.key);
                     detailText.style.cursor = 'pointer';
                     detailText.setAttribute('class', 'process-details editable');
@@ -890,6 +883,67 @@ export default class VSMVisualizer {
         };
         
         waitLabel.addEventListener('click', startEdit);
+    }
+
+    makeReworkRateEditable(reworkLabel, rework) {
+        reworkLabel.style.cursor = 'pointer';
+        
+        const startEdit = (evt) => {
+            evt.stopPropagation();
+            const fromProcess = this.currentProcesses[rework.from];
+            if (!fromProcess) return;
+            
+            const currentRate = fromProcess.attributes.defect_rate || '0';
+            
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentRate;
+            input.style.position = 'absolute';
+            input.style.left = `${evt.clientX - 40}px`;
+            input.style.top = `${evt.clientY - 15}px`;
+            input.style.width = '80px';
+            input.style.height = '25px';
+            input.style.fontSize = '12px';
+            input.style.textAlign = 'center';
+            input.style.border = '1px solid #e74c3c';
+            input.style.borderRadius = '4px';
+            
+            const finishEdit = () => {
+                let newValue = input.value.trim();
+                
+                // Remove % if user included it
+                newValue = newValue.replace('%', '');
+                
+                // Validate: must be a number between 0 and 100
+                const numValue = parseFloat(newValue);
+                if (!isNaN(numValue) && numValue >= 0 && numValue <= 100) {
+                    // Store as string without % symbol
+                    fromProcess.attributes.defect_rate = newValue;
+                    reworkLabel.textContent = `Rework: ${newValue}%`;
+                    
+                    // Update DSL
+                    this.updateDSLWithProcessAttribute(rework.from, 'defect_rate', newValue);
+                    
+                    // Update timing calculations and highlighting
+                    this.updateTimingCalculations();
+                } else {
+                    alert('Rework rate must be a number between 0 and 100');
+                }
+                document.body.removeChild(input);
+            };
+            
+            input.addEventListener('blur', finishEdit);
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') finishEdit();
+                if (e.key === 'Escape') document.body.removeChild(input);
+            });
+            
+            document.body.appendChild(input);
+            input.focus();
+            input.select();
+        };
+        
+        reworkLabel.addEventListener('click', startEdit);
     }
 
     // Rename the makeCTEditable method to makePTEditable and update its contents:
@@ -1887,8 +1941,8 @@ drawReworkFlows() {
         this.selectedReworkFlow = null;
     }
     
-    // Remove existing rework flow groups
-    const existingRework = this.svg.querySelectorAll('.rework-flow-group');
+    // Remove existing rework flow groups and labels
+    const existingRework = this.svg.querySelectorAll('.rework-flow-group, .rework-rate-label');
     existingRework.forEach(el => el.remove());
 
     // Check if currentReworkFlows exists and has content
@@ -1956,6 +2010,33 @@ drawReworkFlows() {
 
         // Insert the group at the beginning (behind process boxes)
         this.svg.insertBefore(group, insertBeforeNode);
+
+        // Add rework rate label on the line
+        const fromProcess = this.currentProcesses[rework.from];
+        if (fromProcess) {
+            const defectRate = fromProcess.attributes.defect_rate || '0';
+            
+            // Calculate label position (below the curved path with padding)
+            const labelX = (startX + endX) / 2;
+            const labelY = midY + 15; // Position below the line with 15px padding
+            
+            const reworkLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            reworkLabel.setAttribute('x', labelX);
+            reworkLabel.setAttribute('y', labelY);
+            reworkLabel.setAttribute('class', 'rework-rate-label');
+            reworkLabel.setAttribute('text-anchor', 'middle');
+            reworkLabel.setAttribute('fill', '#e74c3c');
+            reworkLabel.setAttribute('font-weight', 'bold');
+            reworkLabel.setAttribute('font-size', '12');
+            reworkLabel.setAttribute('data-rework-from', rework.from);
+            reworkLabel.setAttribute('data-rework-to', rework.to);
+            reworkLabel.textContent = `Rework: ${defectRate}%`;
+            
+            // Make the rework rate editable
+            this.makeReworkRateEditable(reworkLabel, rework);
+            
+            this.svg.appendChild(reworkLabel);
+        }
     });
 
     // Restore selection if there was one
@@ -2113,14 +2194,7 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
         
         input = document.createElement('input');
         input.type = 'text';
-        
-        // For defect_rate, show just the number (strip % if present)
-        let initialValue = this.currentProcesses[processId].attributes[attributeName] || '';
-        if (attributeName === 'defect_rate') {
-            initialValue = initialValue.toString().replace('%', '').trim();
-            if (!initialValue) initialValue = '0';
-        }
-        input.value = initialValue;
+        input.value = this.currentProcesses[processId].attributes[attributeName] || '';
         input.style.position = 'absolute';
         input.style.left = `${evt.clientX - 40}px`;
         input.style.top = `${evt.clientY - 15}px`;
@@ -2133,23 +2207,6 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
 
         const validateValue = (value) => {
             if (!value && value !== '0') return false;
-            
-            // Special validation for defect_rate (Rework Rate)
-            if (attributeName === 'defect_rate') {
-                // Strip % if present
-                const numValue = parseFloat(value.toString().replace('%', '').trim());
-                if (isNaN(numValue)) return false;
-                if (numValue < 0 || numValue > 100) {
-                    if (!isShowingAlert) {
-                        isShowingAlert = true;
-                        this.showCustomAlert('Rework Rate must be between 0 and 100', () => {
-                            isShowingAlert = false;
-                        });
-                    }
-                    return false;
-                }
-                return true;
-            }
             
             const isValid = attributeName.includes('time') ? 
                 /^\d*\.?\d+[Mwdhms]$/.test(value) :
@@ -2168,27 +2225,15 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
 
         const saveValue = () => {
             if (isShowingAlert) return false;
-            let newValue = input.value.trim();
-            
-            // For defect_rate, strip % and validate range
-            if (attributeName === 'defect_rate') {
-                newValue = newValue.toString().replace('%', '').trim();
-                if (!newValue) newValue = '0';
-            }
+            const newValue = input.value.trim();
             
             if (validateValue(newValue)) {
-                // For defect_rate, store just the number (not the %)
-                const valueToStore = attributeName === 'defect_rate' ? newValue : newValue;
-                
                 // Update the process attribute
-                this.currentProcesses[processId].attributes[attributeName] = valueToStore;
-                
-                // Display with % for defect_rate
-                const displayValue = attributeName === 'defect_rate' ? `${valueToStore}%` : valueToStore;
-                textElement.textContent = `${displayPrefix}: ${displayValue}`;
+                this.currentProcesses[processId].attributes[attributeName] = newValue;
+                textElement.textContent = `${displayPrefix}: ${newValue}`;
                 
                 // Update DSL and recalculate everything
-                this.updateDSLWithProcessAttribute(processId, attributeName, valueToStore);
+                this.updateDSLWithProcessAttribute(processId, attributeName, newValue);
                 this.updateTimingCalculations();
 
                 // Redraw the visualization (this will also highlight the highest rework rate)
@@ -2249,46 +2294,51 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
 }
 
     /**
-     * Highlight the process with the highest rework rate by making its label red
+     * Highlight the rework connection with the highest rework rate
      */
     highlightHighestReworkRate() {
+        // Only highlight if there are rework flows
+        if (!this.currentReworkFlows || this.currentReworkFlows.length === 0) return;
+        
         const processes = this.currentProcesses || {};
         
-        if (Object.keys(processes).length === 0) return;
-        
-        // Find the process with the highest rework rate
+        // Find the rework connection with the highest rate
         let highestRate = -1;
-        let highestProcessId = null;
-        const ties = [];
+        let highestReworks = [];
         
-        Object.entries(processes).forEach(([processId, process]) => {
-            const rate = parseFloat(process.attributes.defect_rate || '0');
-            if (!isNaN(rate)) {
-                if (rate > highestRate) {
-                    highestRate = rate;
-                    highestProcessId = processId;
-                    ties.length = 0;
-                    ties.push(processId);
-                } else if (rate === highestRate && rate > 0) {
-                    ties.push(processId);
+        this.currentReworkFlows.forEach(rework => {
+            const fromProcess = processes[rework.from];
+            if (fromProcess) {
+                const rate = parseFloat(fromProcess.attributes.defect_rate || '0');
+                if (!isNaN(rate)) {
+                    if (rate > highestRate) {
+                        highestRate = rate;
+                        highestReworks = [rework];
+                    } else if (rate === highestRate && rate > 0) {
+                        highestReworks.push(rework);
+                    }
                 }
             }
         });
         
-        // Clear previous red styling from all rework rate labels
-        const allReworkLabels = this.svg.querySelectorAll('[data-rework-rate]');
+        // Clear previous highlighting from all rework rate labels
+        const allReworkLabels = this.svg.querySelectorAll('.rework-rate-label');
         allReworkLabels.forEach(label => {
-            label.style.fill = '';
+            label.setAttribute('fill', '#e74c3c');
+            label.setAttribute('font-weight', 'bold');
         });
         
-        // Highlight the highest rework rate(s) in red
-        if (highestProcessId && highestRate > 0) {
-            // If there are ties, highlight all of them
-            ties.forEach(processId => {
-                const labels = this.svg.querySelectorAll(`[data-rework-rate="${processId}"]`);
-                labels.forEach(label => {
-                    label.style.fill = 'red';
-                });
+        // Highlight the highest rework rate(s) with red and extra bold
+        if (highestReworks.length > 0 && highestRate > 0) {
+            highestReworks.forEach(rework => {
+                const label = this.svg.querySelector(
+                    `.rework-rate-label[data-rework-from="${rework.from}"][data-rework-to="${rework.to}"]`
+                );
+                if (label) {
+                    label.setAttribute('fill', '#c0392b');
+                    label.setAttribute('font-weight', 'bolder');
+                    label.setAttribute('font-size', '13');
+                }
             });
         }
     }
