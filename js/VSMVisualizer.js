@@ -569,6 +569,19 @@ export default class VSMVisualizer {
                         text.setAttribute('y', currentY + deltaY);
                     }
                 });
+                
+                // Update value type badge rect (separate from main process rect)
+                const valueTypeBadge = selectedElement.querySelector('.value-type-badge');
+                if (valueTypeBadge) {
+                    const badgeX = parseFloat(valueTypeBadge.getAttribute('x'));
+                    const badgeY = parseFloat(valueTypeBadge.getAttribute('y'));
+                    if (!isNaN(badgeX)) {
+                        valueTypeBadge.setAttribute('x', badgeX + deltaX);
+                    }
+                    if (!isNaN(badgeY)) {
+                        valueTypeBadge.setAttribute('y', badgeY + deltaY);
+                    }
+                }
 
                 // Update the Add Process button (circle and plus symbol) which live in the controls layer
                 const addProcessCircle = this.svg.querySelector(`.add-process-circle[data-add-for="${processId}"]`);
