@@ -647,12 +647,38 @@ positions {
             html += '<div style="background: #fff; border: 1px solid #bdc3c7; border-radius: 5px; padding: 15px; margin-bottom: 20px;">';
             html += '<div style="text-align: center; font-size: 16px; margin-bottom: 15px;"><strong>Calculation:</strong></div>';
             
+            // Helper function to get value type badge HTML
+            const getValueTypeBadge = (valueType) => {
+                const colors = {
+                    'VA': { bg: '#27ae60', text: '#fff' },
+                    'NVA': { bg: '#e74c3c', text: '#fff' },
+                    'NNVA': { bg: '#f39c12', text: '#fff' }
+                };
+                const color = colors[valueType] || colors['VA'];
+                return `<span style="display: inline-block; padding: 1px 5px; margin-right: 6px; background: ${color.bg}; color: ${color.text}; border-radius: 3px; font-size: 9px; font-weight: bold; vertical-align: middle;">${valueType}</span>`;
+            };
+
             // Show process counts by type
             html += '<div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">';
             html += '<div style="font-size: 12px; margin-bottom: 8px;"><strong>Processes on Critical Path:</strong></div>';
             html += `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: #27ae60; color: white; border-radius: 3px; font-size: 11px;">VA: ${vaCount}</span>`;
             html += `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: #f39c12; color: white; border-radius: 3px; font-size: 11px;">NNVA: ${nnvaCount}</span>`;
             html += `<span style="display: inline-block; padding: 2px 8px; margin: 2px; background: #e74c3c; color: white; border-radius: 3px; font-size: 11px;">NVA: ${nvaCount}</span>`;
+            
+            // List each process with badge
+            html += '<div style="margin-top: 10px; font-size: 12px;">';
+            criticalPath.forEach((processId, index) => {
+                const process = visualizer.currentProcesses[processId];
+                if (process) {
+                    const name = process.attributes.name || processId;
+                    const valueType = process.attributes.value_type || 'VA';
+                    const pt = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
+                    const badge = getValueTypeBadge(valueType);
+                    const includedStyle = valueType === 'VA' ? 'color: #27ae60;' : 'color: #95a5a6; text-decoration: line-through;';
+                    html += `<div style="padding: 3px 0; ${includedStyle}">${badge}${name} <span style="font-family: monospace;">${pt.toFixed(2)}d</span></div>`;
+                }
+            });
+            html += '</div>';
             html += '</div>';
             
             html += '<div class="breakdown-row" style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #ecf0f1;">';
@@ -722,7 +748,8 @@ positions {
                     name: process.attributes.name || processId,
                     value: process.attributes.wait_time,
                     numericValue: wtValue,
-                    isZero: wtValue === 0
+                    isZero: wtValue === 0,
+                    valueType: process.attributes.value_type || 'VA'
                 };
                 if (criticalPathProcessIds.has(processId)) {
                     processWaitTimesCritical.push(item);
@@ -749,7 +776,8 @@ positions {
                     name: `${fromName} → ${toName}`,
                     value: flow.wait_time,
                     numericValue: wtValue,
-                    isZero: wtValue === 0
+                    isZero: wtValue === 0,
+                    valueType: flow.value_type || 'NVA'
                 };
                 if (criticalFlows.has(flowKey)) {
                     flowWaitTimesCritical.push(item);
@@ -764,6 +792,17 @@ positions {
             // Build HTML
             let html = '';
 
+            // Helper function to get value type badge HTML
+            const getValueTypeBadge = (valueType) => {
+                const colors = {
+                    'VA': { bg: '#27ae60', text: '#fff' },
+                    'NVA': { bg: '#e74c3c', text: '#fff' },
+                    'NNVA': { bg: '#f39c12', text: '#fff' }
+                };
+                const color = colors[valueType] || colors['VA'];
+                return `<span style="display: inline-block; padding: 1px 5px; margin-right: 6px; background: ${color.bg}; color: ${color.text}; border-radius: 3px; font-size: 9px; font-weight: bold; vertical-align: middle;">${valueType}</span>`;
+            };
+
             // Helper function to render wait time items
             const renderWaitTimeItems = (items, maxValue) => {
                 items.forEach(item => {
@@ -773,8 +812,9 @@ positions {
                     } else if (item.numericValue === maxValue && maxValue > 0) {
                         itemStyle = 'color: red;'; // Red for longest wait time (excluding zeros)
                     }
+                    const badge = getValueTypeBadge(item.valueType);
                     html += `<div class="breakdown-item">
-                        <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
+                        <div class="breakdown-name" style="${itemStyle}">${badge}${item.name}</div>
                         <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
                     </div>`;
                 });
@@ -862,6 +902,17 @@ positions {
 
             let runningTotal = 0;
 
+            // Helper function to get value type badge HTML
+            const getValueTypeBadge = (valueType) => {
+                const colors = {
+                    'VA': { bg: '#27ae60', text: '#fff' },
+                    'NVA': { bg: '#e74c3c', text: '#fff' },
+                    'NNVA': { bg: '#f39c12', text: '#fff' }
+                };
+                const color = colors[valueType] || colors['VA'];
+                return `<span style="display: inline-block; padding: 1px 5px; margin-right: 6px; background: ${color.bg}; color: ${color.text}; border-radius: 3px; font-size: 9px; font-weight: bold; vertical-align: middle;">${valueType}</span>`;
+            };
+
             criticalPath.forEach((processId, index) => {
                 const process = visualizer.currentProcesses[processId];
                 if (!process) return;
@@ -870,9 +921,11 @@ positions {
                 const pt = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
                 const wt = visualizer.convertTimeToStandardUnit(process.attributes.wait_time);
                 const cycleTime = pt + wt;
+                const processValueType = process.attributes.value_type || 'VA';
+                const processBadge = getValueTypeBadge(processValueType);
 
                 html += `<div class="breakdown-item">
-                    <div class="breakdown-name">${index + 1}. ${processName}</div>
+                    <div class="breakdown-name">${processBadge}${index + 1}. ${processName}</div>
                     <div class="breakdown-value">${process.attributes.process_time} PT + ${process.attributes.wait_time} WT = ${cycleTime.toFixed(2)}d</div>
                 </div>`;
 
@@ -884,8 +937,10 @@ positions {
                     const flow = visualizer.currentFlows.find(f => f.from === processId && f.to === nextProcessId);
                     if (flow) {
                         const flowWT = visualizer.convertTimeToStandardUnit(flow.wait_time);
+                        const flowValueType = flow.value_type || 'NVA';
+                        const flowBadge = getValueTypeBadge(flowValueType);
                         html += `<div class="breakdown-item" style="padding-left: 20px; color: #7f8c8d;">
-                            <div class="breakdown-name">↓ Flow Wait Time</div>
+                            <div class="breakdown-name">${flowBadge}↓ Flow Wait Time</div>
                             <div class="breakdown-value">${flow.wait_time}</div>
                         </div>`;
                         runningTotal += flowWT;
@@ -930,7 +985,8 @@ positions {
                     name: process.attributes.name || processId,
                     value: process.attributes.process_time,
                     numericValue: ptValue,
-                    isZero: ptValue === 0
+                    isZero: ptValue === 0,
+                    valueType: process.attributes.value_type || 'VA'
                 };
                 if (criticalPathProcessIds.has(processId)) {
                     processTimesCritical.push(item);
@@ -946,6 +1002,17 @@ positions {
 
             let html = '';
 
+            // Helper function to get value type badge HTML
+            const getValueTypeBadge = (valueType) => {
+                const colors = {
+                    'VA': { bg: '#27ae60', text: '#fff' },
+                    'NVA': { bg: '#e74c3c', text: '#fff' },
+                    'NNVA': { bg: '#f39c12', text: '#fff' }
+                };
+                const color = colors[valueType] || colors['VA'];
+                return `<span style="display: inline-block; padding: 1px 5px; margin-right: 6px; background: ${color.bg}; color: ${color.text}; border-radius: 3px; font-size: 9px; font-weight: bold; vertical-align: middle;">${valueType}</span>`;
+            };
+
             // Helper function to render process time items
             const renderProcessTimeItems = (items) => {
                 items.forEach(item => {
@@ -955,8 +1022,9 @@ positions {
                     } else if (item.numericValue === maxProcessTime && maxProcessTime > 0) {
                         itemStyle = 'color: red;'; // Red for longest process time (excluding zeros)
                     }
+                    const badge = getValueTypeBadge(item.valueType);
                     html += `<div class="breakdown-item">
-                        <div class="breakdown-name" style="${itemStyle}">${item.name}</div>
+                        <div class="breakdown-name" style="${itemStyle}">${badge}${item.name}</div>
                         <div class="breakdown-value" style="${itemStyle}">${item.value}</div>
                     </div>`;
                 });
@@ -1013,14 +1081,28 @@ positions {
             html += '<h4>Critical Path Details</h4>';
             html += '<p style="color: #7f8c8d; font-size: 0.9em; margin-bottom: 10px;">The longest path through the value stream, determining the minimum lead time</p>';
 
-            // Process sequence
+            // Helper function to get value type badge HTML
+            const getValueTypeBadge = (valueType) => {
+                const colors = {
+                    'VA': { bg: '#27ae60', text: '#fff' },
+                    'NVA': { bg: '#e74c3c', text: '#fff' },
+                    'NNVA': { bg: '#f39c12', text: '#fff' }
+                };
+                const color = colors[valueType] || colors['VA'];
+                return `<span style="display: inline-block; padding: 1px 5px; margin-right: 6px; background: ${color.bg}; color: ${color.text}; border-radius: 3px; font-size: 9px; font-weight: bold; vertical-align: middle;">${valueType}</span>`;
+            };
+
+            // Process sequence with badges
             html += '<div style="padding: 15px; background: #fff3cd; border-left: 4px solid #e67e22; margin-bottom: 15px;">';
             html += '<strong style="color: #e67e22;">Critical Path Sequence:</strong><br>';
-            const pathNames = criticalPath.map(processId => {
+            const pathItems = criticalPath.map(processId => {
                 const process = visualizer.currentProcesses[processId];
-                return process ? (process.attributes.name || processId) : processId;
+                const name = process ? (process.attributes.name || processId) : processId;
+                const valueType = process ? (process.attributes.value_type || 'VA') : 'VA';
+                const badge = getValueTypeBadge(valueType);
+                return badge + '<span style="color: #2c3e50;">' + name + '</span>';
             });
-            html += '<span style="color: #2c3e50; font-family: monospace;">' + pathNames.join(' → ') + '</span>';
+            html += '<div style="font-family: monospace; line-height: 2;">' + pathItems.join(' → ') + '</div>';
             html += '</div>';
 
             // Detailed breakdown
@@ -1034,9 +1116,11 @@ positions {
                 const pt = visualizer.convertTimeToStandardUnit(process.attributes.process_time);
                 const wt = visualizer.convertTimeToStandardUnit(process.attributes.wait_time);
                 const cycleTime = pt + wt;
+                const processValueType = process.attributes.value_type || 'VA';
+                const processBadge = getValueTypeBadge(processValueType);
 
                 html += `<div class="breakdown-item">
-                    <div class="breakdown-name">${index + 1}. ${processName} (CT)</div>
+                    <div class="breakdown-name">${processBadge}${index + 1}. ${processName} (CT)</div>
                     <div class="breakdown-value">${cycleTime.toFixed(2)}d</div>
                 </div>`;
 
@@ -1048,8 +1132,10 @@ positions {
                     const flow = visualizer.currentFlows.find(f => f.from === processId && f.to === nextProcessId);
                     if (flow) {
                         const flowWT = visualizer.convertTimeToStandardUnit(flow.wait_time);
+                        const flowValueType = flow.value_type || 'NVA';
+                        const flowBadge = getValueTypeBadge(flowValueType);
                         html += `<div class="breakdown-item" style="padding-left: 20px; color: #7f8c8d;">
-                            <div class="breakdown-name">   + Flow WT</div>
+                            <div class="breakdown-name">${flowBadge}   + Flow WT</div>
                             <div class="breakdown-value">${flowWT.toFixed(2)}d</div>
                         </div>`;
                         runningTotal += flowWT;
