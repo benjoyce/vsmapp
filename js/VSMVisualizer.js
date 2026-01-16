@@ -164,39 +164,41 @@ export default class VSMVisualizer {
         const editor = document.getElementById('dslEditor');
         if (!editor) return;
 
-        let dslText = editor.value;
-        
-        // Find the flow block and update it
-        const flowRegex = new RegExp(
-            `flow from ${flow.from} to ${flow.to}\\s*\\{([^}]*)\\}`,
-            's'
-        );
-        
-        const match = dslText.match(flowRegex);
-        if (match) {
-            let flowContent = match[1];
+        try {
+            const data = JSON.parse(editor.value);
             
-            // Check if value_type already exists
-            if (/value_type:/.test(flowContent)) {
-                // Update existing value_type
-                flowContent = flowContent.replace(
-                    /value_type:\s*"?\w+"?/,
-                    `value_type: "${flow.value_type}"`
-                );
-            } else {
-                // Add value_type after wait_time
-                flowContent = flowContent.replace(
-                    /(wait_time:\s*[^\n]+)/,
-                    `$1\n  value_type: "${flow.value_type}"`
-                );
+            // Find and update the flow
+            if (data.flows) {
+                const flowIndex = data.flows.findIndex(f => f.from === flow.from && f.to === flow.to);
+                if (flowIndex !== -1) {
+                    data.flows[flowIndex].value_type = flow.value_type;
+                }
             }
             
-            dslText = dslText.replace(
-                flowRegex,
-                `flow from ${flow.from} to ${flow.to} {${flowContent}}`
-            );
+            editor.value = JSON.stringify(data, null, 2);
+        } catch (e) {
+            console.error('Error updating flow value type in JSON:', e);
+        }
+    }
+
+    updateDSLWithFlowWaitTime(flow) {
+        const editor = document.getElementById('dslEditor');
+        if (!editor) return;
+
+        try {
+            const data = JSON.parse(editor.value);
             
-            editor.value = dslText;
+            // Find and update the flow
+            if (data.flows) {
+                const flowIndex = data.flows.findIndex(f => f.from === flow.from && f.to === flow.to);
+                if (flowIndex !== -1) {
+                    data.flows[flowIndex].wait_time = flow.wait_time;
+                }
+            }
+            
+            editor.value = JSON.stringify(data, null, 2);
+        } catch (e) {
+            console.error('Error updating flow wait time in JSON:', e);
         }
     }
 
@@ -691,35 +693,20 @@ export default class VSMVisualizer {
 
     // Add this new method to handle DSL updates
     updateDSLWithPositions() {
-        const currentState = {
-            processes: this.currentProcesses,
-            flows: this.currentFlows,
-            infoFlows: this.currentInfoFlows,
-            positions: this.positions
-        };
-
-        // Get the current editor text and find the positions block
-        let editorText = document.getElementById('dslEditor').value;
-        const positionsStart = editorText.indexOf('positions {');
-        
-        if (positionsStart !== -1) {
-            // Find the end of positions block
-            const positionsEnd = editorText.indexOf('}', positionsStart) + 1;
-            // Remove existing positions block
-            editorText = editorText.substring(0, positionsStart) + 
-                        editorText.substring(positionsEnd).trimStart();
+        const editor = document.getElementById('dslEditor');
+        try {
+            const data = JSON.parse(editor.value);
+            
+            // Update positions
+            data.positions = {};
+            Object.entries(this.positions).forEach(([id, pos]) => {
+                data.positions[id] = { x: Math.round(pos.x), y: Math.round(pos.y) };
+            });
+            
+            editor.value = JSON.stringify(data, null, 2);
+        } catch (e) {
+            console.error('Error updating positions in JSON:', e);
         }
-
-        // Format new positions block
-        let positionsBlock = 'positions {\n';
-        Object.entries(this.positions).forEach(([id, pos]) => {
-            positionsBlock += `  ${id}: ${Math.round(pos.x)}, ${Math.round(pos.y)}\n`;
-        });
-        positionsBlock += '}\n';
-
-        // Add positions block at the end of the DSL
-        document.getElementById('dslEditor').value = 
-            editorText.trim() + '\n\n' + positionsBlock;
     }
 
     redrawFlows() {
@@ -1003,8 +990,14 @@ export default class VSMVisualizer {
                     flow.wait_time = newValue;
                     waitLabel.textContent = `Wait: ${newValue}`;
                     
+                    // Update the JSON
+                    this.updateDSLWithFlowWaitTime(flow);
+                    
                     // Update all timing calculations
                     this.updateTimingCalculations();
+                    
+                    // Save state
+                    this.saveState();
                 }
                 document.body.removeChild(input);
             };
@@ -1152,46 +1145,25 @@ export default class VSMVisualizer {
         ptText.addEventListener('click', startEdit);
     }
 
-    // Add this new method to update process attributes in DSL
+    // Add this new method to update process attributes in JSON
     updateDSLWithProcessAttribute(processId, attributeName, value) {
         const editor = document.getElementById('dslEditor');
-        const dslText = editor.value;
-        const lines = dslText.split('\n');
-        
-        let inTargetProcess = false;
-        let processStart = -1;
-        let processEnd = -1;
-        let attributeLine = -1;
-        
-        // Find the target process block and attribute
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (line === `process ${processId} {`) {
-                inTargetProcess = true;
-                processStart = i;
-                continue;
-            }
-            if (inTargetProcess) {
-                if (line === '}') {
-                    processEnd = i;
-                    break;
+        try {
+            const data = JSON.parse(editor.value);
+            
+            if (data.processes && data.processes[processId]) {
+                // Clean up value - remove quotes if present
+                let cleanValue = value;
+                if (typeof value === 'string') {
+                    cleanValue = value.replace(/^"(.*)"$/, '$1');
                 }
-                if (line.startsWith(attributeName + ':')) {
-                    attributeLine = i;
-                }
+                data.processes[processId][attributeName] = cleanValue;
+                editor.value = JSON.stringify(data, null, 2);
             }
+        } catch (e) {
+            console.error('Error updating process attribute in JSON:', e);
         }
-        
-        // Update the attribute value
-        if (attributeLine !== -1) {
-            lines[attributeLine] = `  ${attributeName}: ${value}`;
-        } else if (processStart !== -1 && processEnd !== -1) {
-            // Add new attribute if it doesn't exist
-            lines.splice(processEnd, 0, `  ${attributeName}: ${value}`);
-        }
-        
-        editor.value = lines.join('\n');
-   }
+    }
 
     // Add helper function to calculate cycle time as PT + WT
     calculateCycleTime(process) {
@@ -1617,36 +1589,44 @@ export default class VSMVisualizer {
 
     updateDSLWithNewProcess(process, processId, flow) {
         const editor = document.getElementById('dslEditor');
-        let dslText = editor.value;
-        
-        // Add new process
-        const processBlock = `\nprocess ${processId} {
-  stage_id: ${process.attributes.stage_id}
-  name: "${process.attributes.name}"
-  owner: "${process.attributes.owner}"
-  description: "${process.attributes.description}"
-  wait_time: ${process.attributes.wait_time}
-  process_time: ${process.attributes.process_time}
-  defect_rate: ${process.attributes.defect_rate}
-  value_type: "${process.attributes.value_type || 'VA'}"
-}\n`;
-
-    // Add new flow
-    const flowBlock = `\nflow from ${flow.from} to ${flow.to} {
-  wait_time: ${flow.wait_time}
-  value_type: "${flow.value_type || 'NVA'}"
-}\n`;
-
-    // Insert before positions block if it exists
-    const positionsIndex = dslText.indexOf('positions {');
-    if (positionsIndex !== -1) {
-        dslText = dslText.slice(0, positionsIndex) + processBlock + flowBlock + dslText.slice(positionsIndex);
-    } else {
-        dslText += processBlock + flowBlock;
+        try {
+            const data = JSON.parse(editor.value);
+            
+            // Add new process
+            data.processes[processId] = {
+                stage_id: process.attributes.stage_id,
+                name: process.attributes.name,
+                owner: process.attributes.owner,
+                description: process.attributes.description,
+                wait_time: process.attributes.wait_time,
+                process_time: process.attributes.process_time,
+                defect_rate: process.attributes.defect_rate,
+                value_type: process.attributes.value_type || 'VA'
+            };
+            
+            // Add new flow
+            if (!data.flows) data.flows = [];
+            data.flows.push({
+                from: flow.from,
+                to: flow.to,
+                wait_time: flow.wait_time,
+                value_type: flow.value_type || 'NVA'
+            });
+            
+            // Add position if available
+            if (this.positions[processId]) {
+                if (!data.positions) data.positions = {};
+                data.positions[processId] = {
+                    x: Math.round(this.positions[processId].x),
+                    y: Math.round(this.positions[processId].y)
+                };
+            }
+            
+            editor.value = JSON.stringify(data, null, 2);
+        } catch (e) {
+            console.error('Error adding new process to JSON:', e);
+        }
     }
-
-    editor.value = dslText;
-}
 
 showCustomAlert(message, onClose) {
     const alertDiv = document.createElement('div');
@@ -1791,6 +1771,11 @@ deleteSelectedReworkFlow() {
         // Remove any flows that reference this process
         this.currentFlows = this.currentFlows.filter(f => f.from !== id && f.to !== id);
         this.currentInfoFlows = this.currentInfoFlows.filter(f => f.from !== id && f.to !== id);
+        
+        // Remove any rework flows that reference this process
+        if (this.currentReworkFlows) {
+            this.currentReworkFlows = this.currentReworkFlows.filter(f => f.from !== id && f.to !== id);
+        }
 
         // Remove position entry
         if (this.positions && this.positions[id]) delete this.positions[id];
@@ -1803,6 +1788,7 @@ deleteSelectedReworkFlow() {
             processes: this.currentProcesses,
             flows: this.currentFlows,
             infoFlows: this.currentInfoFlows,
+            reworkFlows: this.currentReworkFlows,
             positions: this.positions
         });
         this.saveState();
@@ -1839,17 +1825,18 @@ updateDSLRemoveFlow(fromId, toId) {
     const editor = document.getElementById('dslEditor');
     if (!editor) return;
 
-    let dslText = editor.value;
-
-    // Find and remove the flow block
-    const flowPattern = new RegExp(
-        `\\n*flow\\s+from\\s+${fromId}\\s+to\\s+${toId}\\s*\\{[^}]*\\}\\n*`,
-        'g'
-    );
-
-    dslText = dslText.replace(flowPattern, '\n');
-
-    editor.value = dslText;
+    try {
+        const data = JSON.parse(editor.value);
+        
+        // Remove the flow
+        if (data.flows) {
+            data.flows = data.flows.filter(f => !(f.from === fromId && f.to === toId));
+        }
+        
+        editor.value = JSON.stringify(data, null, 2);
+    } catch (e) {
+        console.error('Error removing flow from JSON:', e);
+    }
 }
 
 addFlowConnectionPoint(group, processId, pos) {
@@ -2069,52 +2056,57 @@ addReworkConnectionPoint(group, processId, pos) {
         const editor = document.getElementById('dslEditor');
         if (!editor) return;
 
-        let dsl = '';
+        const data = {
+            processes: {},
+            flows: [],
+            reworkFlows: [],
+            positions: {}
+        };
 
         // Add all processes
         Object.entries(this.currentProcesses).forEach(([processId, process]) => {
-            dsl += `\nprocess ${processId} {\n`;
-            dsl += `  stage_id: ${process.attributes.stage_id}\n`;
-            dsl += `  name: "${process.attributes.name}"\n`;
-            dsl += `  owner: "${process.attributes.owner}"\n`;
-            dsl += `  description: "${process.attributes.description}"\n`;
-            dsl += `  wait_time: ${process.attributes.wait_time}\n`;
-            dsl += `  process_time: ${process.attributes.process_time}\n`;
-            dsl += `  defect_rate: ${process.attributes.defect_rate}\n`;
-            dsl += `  value_type: "${process.attributes.value_type || 'VA'}"\n`;
-            dsl += `}\n`;
+            data.processes[processId] = {
+                stage_id: process.attributes.stage_id,
+                name: process.attributes.name,
+                owner: process.attributes.owner,
+                description: process.attributes.description,
+                wait_time: process.attributes.wait_time,
+                process_time: process.attributes.process_time,
+                defect_rate: process.attributes.defect_rate,
+                value_type: process.attributes.value_type || 'VA'
+            };
         });
 
         // Add all flows
         this.currentFlows.forEach(flow => {
-            dsl += `\nflow from ${flow.from} to ${flow.to} {\n`;
-            dsl += `  wait_time: ${flow.wait_time}\n`;
-            dsl += `  value_type: "${flow.value_type || 'NVA'}"\n`;
-            dsl += `}\n`;
-        });
-
-        // Add all info flows
-        if (this.currentInfoFlows) {
-            this.currentInfoFlows.forEach(infoFlow => {
-                dsl += `\ninformation from ${infoFlow.from} to ${infoFlow.to}\n`;
+            data.flows.push({
+                from: flow.from,
+                to: flow.to,
+                wait_time: flow.wait_time || '0d',
+                value_type: flow.value_type || 'NVA'
             });
-        }
+        });
 
         // Add all rework flows
         if (this.currentReworkFlows) {
             this.currentReworkFlows.forEach(rework => {
-                dsl += `\nrework from ${rework.from} to ${rework.to}\n`;
+                data.reworkFlows.push({
+                    from: rework.from,
+                    to: rework.to,
+                    rework_rate: rework.rework_rate || '0'
+                });
             });
         }
 
         // Add positions
-        dsl += `\npositions {\n`;
         Object.entries(this.positions).forEach(([processId, pos]) => {
-            dsl += `  ${processId}: ${pos.x}, ${pos.y}\n`;
+            data.positions[processId] = {
+                x: Math.round(pos.x),
+                y: Math.round(pos.y)
+            };
         });
-        dsl += `}\n`;
 
-        editor.value = dsl;
+        editor.value = JSON.stringify(data, null, 2);
     }
 
     generateNewProcessId(baseId) {
@@ -2516,24 +2508,22 @@ updateDSLWithNewFlow(flow) {
     const editor = document.getElementById('dslEditor');
     if (!editor) return;
 
-    let dslText = editor.value;
-
-    const flowBlock = `\nflow from ${flow.from} to ${flow.to} {
-  wait_time: ${flow.wait_time}
-}\n`;
-
-    // Find the positions block if it exists
-    const positionsIndex = dslText.indexOf('positions {');
-
-    if (positionsIndex !== -1) {
-        // Insert before positions block
-        dslText = dslText.substring(0, positionsIndex) + flowBlock + dslText.substring(positionsIndex);
-    } else {
-        // Append to end
-        dslText += flowBlock;
+    try {
+        const data = JSON.parse(editor.value);
+        
+        // Add the new flow
+        if (!data.flows) data.flows = [];
+        data.flows.push({
+            from: flow.from,
+            to: flow.to,
+            wait_time: flow.wait_time || '0d',
+            value_type: flow.value_type || 'NVA'
+        });
+        
+        editor.value = JSON.stringify(data, null, 2);
+    } catch (e) {
+        console.error('Error adding flow to JSON:', e);
     }
-
-    editor.value = dslText;
 }
 
 redrawFlows() {

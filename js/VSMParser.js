@@ -7,69 +7,65 @@ export default class VSMParser {
         this.positions = {};
     }
 
-    parse(dslText) {
+    parse(jsonText) {
         this.processes = {};
         this.flows = [];
         this.infoFlows = [];
         this.reworkFlows = [];
         this.positions = {};
         
-        let currentBlock = null;
-        let currentBlockType = null;
-        let currentBlockId = null;
-        
-        const lines = dslText.split('\n');
-        for (let line of lines) {
-            line = line.trim();
-            if (!line) continue;
+        try {
+            const data = JSON.parse(jsonText);
             
-            if (line.startsWith('process ')) {
-                const match = line.match(/process\s+(\w+)\s*{/);
-                if (match) {
-                    currentBlockType = 'process';
-                    currentBlockId = match[1];
-                    currentBlock = { attributes: {} };
-                    this.processes[currentBlockId] = currentBlock;
-                }
-            } else if (line.startsWith('flow from ')) {
-                const match = line.match(/flow from\s+(\w+)\s+to\s+(\w+)\s*{/);
-                if (match) {
-                    currentBlockType = 'flow';
-                    currentBlock = { from: match[1], to: match[2] };
-                    this.flows.push(currentBlock);
-                }
-            } else if (line.startsWith('rework from ')) {
-                const match = line.match(/rework from\s+(\w+)\s+to\s+(\w+)/);
-                if (match) {
-                    this.reworkFlows.push({ from: match[1], to: match[2] });
-                }
-            } else if (line === 'positions {') {
-                currentBlockType = 'positions';
-            } else if (line === '}') {
-                currentBlockType = null;
-                currentBlock = null;
-            } else if (currentBlockType === 'positions') {
-                const [id, coords] = line.trim().split(':').map(s => s.trim());
-                if (coords) {
-                    const [x, y] = coords.split(',').map(n => parseFloat(n));
-                    if (!isNaN(x) && !isNaN(y)) {
-                        this.positions[id] = { x, y };
+            // Parse processes
+            if (data.processes) {
+                Object.entries(data.processes).forEach(([id, process]) => {
+                    this.processes[id] = {
+                        attributes: { ...process }
+                    };
+                    // Map lead_time to wait_time for internal consistency
+                    if (this.processes[id].attributes.lead_time) {
+                        this.processes[id].attributes.wait_time = this.processes[id].attributes.lead_time;
+                        delete this.processes[id].attributes.lead_time;
                     }
-                }
-            } else if (currentBlock && currentBlockType === 'process') {
-                const [key, ...valueParts] = line.split(':').map(part => part.trim());
-                const value = valueParts.join(':').replace(/"/g, '');
-                // Map lead_time to wait_time for internal consistency
-                const internalKey = key === 'lead_time' ? 'wait_time' : key;
-                // Skip cycle_time since it's calculated as PT + WT
-                if (key !== 'cycle_time') {
-                    currentBlock.attributes[internalKey] = value;
-                }
-            } else if (currentBlock && currentBlockType === 'flow') {
-                const [key, value] = line.split(':').map(part => part.trim());
-                // Strip quotes from value_type
-                currentBlock[key] = value.replace(/"/g, '');
+                    // Remove cycle_time since it's calculated
+                    delete this.processes[id].attributes.cycle_time;
+                });
             }
+            
+            // Parse flows
+            if (data.flows) {
+                this.flows = data.flows.map(flow => ({
+                    from: flow.from,
+                    to: flow.to,
+                    wait_time: flow.wait_time || '0d',
+                    value_type: flow.value_type || 'NVA'
+                }));
+            }
+            
+            // Parse info flows
+            if (data.infoFlows) {
+                this.infoFlows = data.infoFlows;
+            }
+            
+            // Parse rework flows
+            if (data.reworkFlows) {
+                this.reworkFlows = data.reworkFlows.map(rework => ({
+                    from: rework.from,
+                    to: rework.to,
+                    rework_rate: rework.rework_rate || '0'
+                }));
+            }
+            
+            // Parse positions
+            if (data.positions) {
+                Object.entries(data.positions).forEach(([id, pos]) => {
+                    this.positions[id] = { x: pos.x, y: pos.y };
+                });
+            }
+        } catch (e) {
+            console.error('Error parsing JSON:', e);
+            // Return empty data on parse error
         }
         
         return {
@@ -82,59 +78,64 @@ export default class VSMParser {
     }
 
     serialize(data) {
-        let dsl = '';
+        const output = {
+            processes: {},
+            flows: [],
+            reworkFlows: [],
+            positions: {}
+        };
         
         // Serialize processes
         Object.entries(data.processes).forEach(([id, process]) => {
-            dsl += `process ${id} {\n`;
-            Object.entries(process.attributes).forEach(([key, value]) => {
-                // Map lead_time to wait_time when serializing and skip cycle_time
-                const outputKey = key === 'lead_time' ? 'wait_time' : key;
-                if (key !== 'cycle_time') {
-                    dsl += `  ${outputKey}: ${typeof value === 'string' ? `"${value}"` : value}\n`;
-                }
-            });
-            dsl += '}\n\n';
+            const attrs = { ...process.attributes };
+            // Map lead_time to wait_time when serializing
+            if (attrs.lead_time) {
+                attrs.wait_time = attrs.lead_time;
+                delete attrs.lead_time;
+            }
+            // Remove calculated cycle_time
+            delete attrs.cycle_time;
+            output.processes[id] = attrs;
         });
         
         // Serialize flows
-        data.flows.forEach(flow => {
-            dsl += `flow from ${flow.from} to ${flow.to} {\n`;
-            if (flow.wait_time) {
-                dsl += `  wait_time: ${flow.wait_time}\n`;
-            }
-            if (flow.value_type) {
-                dsl += `  value_type: "${flow.value_type}"\n`;
-            }
-            dsl += '}\n\n';
-        });
+        if (data.flows) {
+            output.flows = data.flows.map(flow => ({
+                from: flow.from,
+                to: flow.to,
+                wait_time: flow.wait_time || '0d',
+                value_type: flow.value_type || 'NVA'
+            }));
+        }
         
         // Serialize rework flows
         if (data.reworkFlows && data.reworkFlows.length > 0) {
-            data.reworkFlows.forEach(rework => {
-                dsl += `rework from ${rework.from} to ${rework.to}\n`;
-            });
-            dsl += '\n';
+            output.reworkFlows = data.reworkFlows.map(rework => ({
+                from: rework.from,
+                to: rework.to,
+                rework_rate: rework.rework_rate || '0'
+            }));
         }
         
-        // Serialize positions if they exist
-        if (Object.keys(data.positions).length > 0) {
-            dsl += 'positions {\n';
+        // Serialize positions
+        if (data.positions && Object.keys(data.positions).length > 0) {
             Object.entries(data.positions).forEach(([id, pos]) => {
-                dsl += `  ${id}: ${Math.round(pos.x)}, ${Math.round(pos.y)}\n`;
+                output.positions[id] = {
+                    x: Math.round(pos.x),
+                    y: Math.round(pos.y)
+                };
             });
-            dsl += '}\n';
         }
         
-        return dsl;
+        return JSON.stringify(output, null, 2);
     }
 
     loadInitialDSL() {
         const editorElem = document.getElementById('dslEditor');
-        const dslText = editorElem.value;
-        const parsedData = this.parse(dslText);
+        const jsonText = editorElem.value;
+        const parsedData = this.parse(jsonText);
         
-        // If we have positions or rework flows in localStorage, add them to the DSL
+        // If we have positions or rework flows in localStorage, merge them
         const savedVSM = localStorage.getItem('vsmState');
         if (savedVSM) {
             try {
@@ -152,7 +153,7 @@ export default class VSMParser {
                 }
                 
                 if (needsUpdate) {
-                    // Update the editor with the positions and rework flows included
+                    // Update the editor with the merged data
                     editorElem.value = this.serialize(parsedData);
                 }
             } catch (e) {

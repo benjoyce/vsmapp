@@ -26,37 +26,43 @@
                         <button class="editor-button" data-action="clear">New VSM</button>
                     </div>
                 </div>
-                <textarea id="dslEditor" class="editor" spellcheck="false">process process_1767197206899 {
-  stage_id: 1
-  name: "Process A"
-  owner: ""
-  description: "New process description"
-  wait_time: "4h"
-  process_time: "1d"
-  defect_rate: "0"
-}
-
-process process_1767197206899_1 {
-  stage_id: 2
-  name: "Process B"
-  owner: ""
-  description: "New process derived from process_1767197206899"
-  wait_time: 30m
-  process_time: "1d"
-  defect_rate: "0"
-}
-
-flow from process_1767197206899 to process_1767197206899_1 {
-  wait_time: 0.5d
-}
-
-positions {
-  process_1767197206899: 370, 290
-  process_1767197206899_1: 630, 290
-}
-
-
-</textarea>
+                <textarea id="dslEditor" class="editor" spellcheck="false">{
+  "processes": {
+    "ProcessA_12012026120000": {
+      "stage_id": 1,
+      "name": "Process A",
+      "owner": "",
+      "description": "New process description",
+      "wait_time": "4h",
+      "process_time": "1d",
+      "defect_rate": "0",
+      "value_type": "VA"
+    },
+    "ProcessB_12012026120001": {
+      "stage_id": 2,
+      "name": "Process B",
+      "owner": "",
+      "description": "New process derived from Process A",
+      "wait_time": "30m",
+      "process_time": "1d",
+      "defect_rate": "0",
+      "value_type": "VA"
+    }
+  },
+  "flows": [
+    {
+      "from": "ProcessA_12012026120000",
+      "to": "ProcessB_12012026120001",
+      "wait_time": "0.5d",
+      "value_type": "NVA"
+    }
+  ],
+  "reworkFlows": [],
+  "positions": {
+    "ProcessA_12012026120000": { "x": 370, "y": 290 },
+    "ProcessB_12012026120001": { "x": 630, "y": 290 }
+  }
+}</textarea>
                 <button class="parse-button" onclick="parseAndVisualize()">Parse & Visualize</button>
                 <input type="file" id="fileInput" accept=".vsm" style="display: none;">
             </div>
@@ -203,22 +209,36 @@ positions {
         }
 
         function clearVSM() {
-            const processId = `process_${Date.now()}`;
+            const now = new Date();
+            const timestamp = now.getDate().toString().padStart(2, '0') +
+                              (now.getMonth() + 1).toString().padStart(2, '0') +
+                              now.getFullYear() +
+                              now.getHours().toString().padStart(2, '0') +
+                              now.getMinutes().toString().padStart(2, '0') +
+                              now.getSeconds().toString().padStart(2, '0');
+            const processId = `NewProcess_${timestamp}`;
 
-            // Create default DSL with one process
-            const defaultDSL = `process ${processId} {
-  stage_id: 1
-  name: "New Process"
-  owner: ""
-  description: "New process description"
-  wait_time: 0d
-  process_time: 0s
-  defect_rate: 0
-  value_type: "VA"
-}`;
+            // Create default JSON with one process
+            const defaultJSON = {
+                processes: {
+                    [processId]: {
+                        stage_id: 1,
+                        name: "New Process",
+                        owner: "",
+                        description: "New process description",
+                        wait_time: "0d",
+                        process_time: "0s",
+                        defect_rate: "0",
+                        value_type: "VA"
+                    }
+                },
+                flows: [],
+                reworkFlows: [],
+                positions: {}
+            };
 
             // Set the DSL editor
-            document.getElementById('dslEditor').value = defaultDSL;
+            document.getElementById('dslEditor').value = JSON.stringify(defaultJSON, null, 2);
 
             // Create the default process structure
             const defaultProcess = {
@@ -360,20 +380,25 @@ positions {
             const centerY = visualizer.height / 2 - visualizer.processHeight / 2;
             visualizer.positions[processId] = { x: centerX, y: centerY };
 
-            // Update the DSL text
+            // Update the JSON in the editor
             const dslEditor = document.getElementById('dslEditor');
-            const processBlock = `\nprocess ${processId} {
-  stage_id: 1
-  name: "New Process"
-  owner: ""
-  description: "New process description"
-  wait_time: 0d
-  process_time: 0s
-  defect_rate: 0
-  value_type: "VA"
-}\n`;
-            
-            dslEditor.value += processBlock;
+            try {
+                const currentData = JSON.parse(dslEditor.value);
+                currentData.processes[processId] = {
+                    stage_id: 1,
+                    name: "New Process",
+                    owner: "",
+                    description: "New process description",
+                    wait_time: "0d",
+                    process_time: "0s",
+                    defect_rate: "0",
+                    value_type: "VA"
+                };
+                currentData.positions[processId] = { x: centerX, y: centerY };
+                dslEditor.value = JSON.stringify(currentData, null, 2);
+            } catch (e) {
+                console.error('Error updating JSON:', e);
+            }
 
             // Redraw the visualization
             visualizer.visualize({
@@ -391,14 +416,15 @@ positions {
                     processes: visualizer.currentProcesses,
                     flows: visualizer.currentFlows,
                     infoFlows: visualizer.currentInfoFlows,
+                    reworkFlows: visualizer.currentReworkFlows,
                     positions: visualizer.positions
                 };
 
-                // Serialize to DSL format
+                // Serialize to JSON format
                 const dslContent = parser.serialize(currentState);
 
                 // Create blob and download
-                const blob = new Blob([dslContent], { type: 'text/plain;charset=utf-8' });
+                const blob = new Blob([dslContent], { type: 'application/json;charset=utf-8' });
                 const url = URL.createObjectURL(blob);
 
                 // Create temporary download link
