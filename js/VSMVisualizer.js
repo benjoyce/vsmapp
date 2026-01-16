@@ -859,7 +859,7 @@ export default class VSMVisualizer {
         localStorage.setItem('vsmState', JSON.stringify(currentState));
     }
 
-    visualize(data) {
+    visualize(data, options = {}) {
         console.log('Visualizing data:', data);
         console.log('Rework flows in data:', data.reworkFlows);
         
@@ -889,8 +889,10 @@ export default class VSMVisualizer {
         // Update all timing calculations after loading state
         this.updateTimingCalculations();
         
-        // Fit the canvas to show all processes
-        this.fitCanvasToContent();
+        // Fit the canvas to show all processes (unless preserveView is set)
+        if (!options.preserveView) {
+            this.fitCanvasToContent();
+        }
         
         // Highlight the highest rework rate
         this.highlightHighestReworkRate();
@@ -1409,14 +1411,14 @@ export default class VSMVisualizer {
         // Update DSL
         this.updateDSLWithProcessAttribute(processId, 'value_type', `"${newType}"`);
         
-        // Redraw
+        // Redraw (preserve current view/zoom)
         this.visualize({
             processes: this.currentProcesses,
             flows: this.currentFlows,
             infoFlows: this.currentInfoFlows,
             reworkFlows: this.currentReworkFlows,
             positions: this.positions
-        });
+        }, { preserveView: true });
         
         this.saveState();
     }
@@ -1496,14 +1498,14 @@ export default class VSMVisualizer {
             // Update the DSL
             this.updateDSLWithNewProcess(newProcess, newId, newFlow);
             
-            // Redraw the visualization
+            // Redraw the visualization (preserve current view/zoom)
             this.visualize({
                 processes: this.currentProcesses,
                 flows: this.currentFlows,
                 infoFlows: this.currentInfoFlows,
                 positions: this.positions
-            });
-            this.saveState(); // Add this line
+            }, { preserveView: true });
+            this.saveState();
         };
 
         circle.addEventListener('click', addNewProcess);
@@ -1763,7 +1765,7 @@ deleteSelectedReworkFlow() {
         if (!this.selectedProcess) return;
         const id = this.selectedProcess;
 
-        // Remove process
+        // Remove process from data
         if (this.currentProcesses && this.currentProcesses[id]) {
             delete this.currentProcesses[id];
         }
@@ -1783,14 +1785,35 @@ deleteSelectedReworkFlow() {
         // Clear selection
         this.selectedProcess = null;
 
-        // Re-render and persist state
-        this.visualize({
-            processes: this.currentProcesses,
-            flows: this.currentFlows,
-            infoFlows: this.currentInfoFlows,
-            reworkFlows: this.currentReworkFlows,
-            positions: this.positions
-        });
+        // Remove the process DOM elements (group contains rect, text, badges)
+        const processRect = this.svg.querySelector(`rect[data-process-id="${id}"]`);
+        if (processRect && processRect.parentElement) {
+            processRect.parentElement.remove();
+        }
+
+        // Remove control elements from the controls layer
+        // Add Process button (circle and plus text)
+        this.svg.querySelectorAll(`[data-add-for="${id}"]`).forEach(el => el.remove());
+        // Flow connection point
+        this.svg.querySelectorAll(`[data-connection-for="${id}"]`).forEach(el => el.remove());
+        // Rework connection point
+        this.svg.querySelectorAll(`[data-rework-connection-for="${id}"]`).forEach(el => el.remove());
+
+        // Redraw flows and rework flows (to remove any connected to deleted process)
+        this.redrawFlows();
+        this.drawReworkFlows();
+
+        // Update timing calculations
+        this.updateTimingCalculations();
+        
+        // Update highlights
+        this.highlightHighestReworkRate();
+        this.highlightMostWastefulProcess();
+
+        // Ensure controls layer stays on top
+        this.bringControlsToFront();
+
+        // Persist state
         this.saveState();
     }
     
@@ -2039,14 +2062,14 @@ addReworkConnectionPoint(group, processId, pos) {
         // 7. Rebuild the entire DSL with updated IDs
         this.rebuildDSL();
 
-        // 8. Redraw the visualization
+        // 8. Redraw the visualization (preserve current view/zoom)
         this.visualize({
             processes: this.currentProcesses,
             flows: this.currentFlows,
             infoFlows: this.currentInfoFlows,
             reworkFlows: this.currentReworkFlows,
             positions: this.positions
-        });
+        }, { preserveView: true });
 
         // 9. Save state
         this.saveState();
@@ -2627,13 +2650,13 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
                 this.updateDSLWithProcessAttribute(processId, attributeName, newValue);
                 this.updateTimingCalculations();
 
-                // Redraw the visualization (this will also highlight the highest rework rate)
+                // Redraw the visualization (preserve current view/zoom)
                 this.visualize({
                     processes: this.currentProcesses,
                     flows: this.currentFlows,
                     infoFlows: this.currentInfoFlows,
                     positions: this.positions
-                });
+                }, { preserveView: true });
                 
                 return true;
             }
