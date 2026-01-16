@@ -1059,6 +1059,9 @@ export default class VSMVisualizer {
                     
                     // Update timing calculations and highlighting
                     this.updateTimingCalculations();
+                    
+                    // Save state to persist changes
+                    this.saveState();
                 } else {
                     alert('Rework rate must be a number between 0 and 100');
                 }
@@ -2657,6 +2660,9 @@ makeAttributeEditable(textElement, processId, attributeName, displayPrefix) {
                     infoFlows: this.currentInfoFlows,
                     positions: this.positions
                 }, { preserveView: true });
+                
+                // Save state to persist changes
+                this.saveState();
                 
                 return true;
             }
