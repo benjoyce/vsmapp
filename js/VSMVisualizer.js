@@ -34,10 +34,15 @@ export default class VSMVisualizer {
         this.currentReworkFlows = [];
         this.selectedReworkFlow = null;
 
+        // Sticky notes state
+        this.stickyNotes = [];
+        this.stickyNoteIdCounter = 0;
+
         this.setupSVG();
         this.setupPanning();
         this.setupZoom();
         this.setupFlowDeletion();
+        this.setupStickyNotes();
     }
 
     drawFlows(flows, positions) {
@@ -923,6 +928,9 @@ export default class VSMVisualizer {
 
         // Ensure controls (add-buttons, connection dots) render above flows
         this.bringControlsToFront();
+        
+        // Redraw sticky notes (they get cleared by setupSVG)
+        this.redrawStickyNotes();
         
         // Update all timing calculations after loading state
         this.updateTimingCalculations();
@@ -2992,4 +3000,471 @@ makeNameEditable(titleElement, processId) {
     titleElement.addEventListener('click', startEdit);
     titleElement.style.cursor = 'pointer';
 }
+
+    // ==================== STICKY NOTES ====================
+    
+    setupStickyNotes() {
+        // Use event delegation on document for the button click
+        // This ensures the handler works even if button is added after this runs
+        document.addEventListener('click', (e) => {
+            const addBtn = e.target.closest('#addStickyNoteBtn');
+            if (addBtn) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.addStickyNote();
+            }
+        });
+        
+        // Load saved sticky notes data (but don't render yet - visualize will call redrawStickyNotes)
+        this.loadStickyNotesData();
+    }
+    
+    loadStickyNotesData() {
+        // Only load the data, don't render - rendering happens in redrawStickyNotes after visualize
+        const savedNotes = localStorage.getItem('vsmStickyNotes');
+        if (savedNotes) {
+            try {
+                const notesData = JSON.parse(savedNotes);
+                this.stickyNotes = notesData.map(note => ({
+                    id: note.id,
+                    x: note.x,
+                    y: note.y,
+                    width: note.width,
+                    height: note.height,
+                    text: note.text
+                }));
+            } catch (e) {
+                console.error('Error loading sticky notes data:', e);
+                this.stickyNotes = [];
+            }
+        }
+    }
+    
+    addStickyNote(x = null, y = null, text = '', id = null, width = 200, height = 150) {
+        const noteId = id || `sticky-${Date.now()}-${this.stickyNoteIdCounter++}`;
+        const noteWidth = width;
+        const noteHeight = height;
+        
+        // Calculate position in SVG coordinates - avoid overlap with existing elements
+        let noteX = x;
+        let noteY = y;
+        
+        if (noteX === null || noteY === null) {
+            const position = this.findNonOverlappingPosition(noteWidth, noteHeight);
+            noteX = position.x;
+            noteY = position.y;
+        }
+        
+        console.log('Adding sticky note at SVG coords:', noteX, noteY, 'viewBox:', this.viewBox);
+        
+        // Create SVG group to hold all note elements
+        const noteGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        noteGroup.setAttribute('class', 'sticky-note-group');
+        noteGroup.setAttribute('id', noteId);
+        noteGroup.setAttribute('transform', `translate(${noteX}, ${noteY})`);
+        
+        // Create background rect
+        const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        bgRect.setAttribute('x', 0);
+        bgRect.setAttribute('y', 0);
+        bgRect.setAttribute('width', noteWidth);
+        bgRect.setAttribute('height', noteHeight);
+        bgRect.setAttribute('fill', '#fff9c4');
+        bgRect.setAttribute('stroke', '#f9a825');
+        bgRect.setAttribute('stroke-width', '1');
+        bgRect.setAttribute('rx', '4');
+        bgRect.setAttribute('class', 'sticky-note-bg');
+        noteGroup.appendChild(bgRect);
+        
+        // Create header rect
+        const headerRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        headerRect.setAttribute('x', 0);
+        headerRect.setAttribute('y', 0);
+        headerRect.setAttribute('width', noteWidth);
+        headerRect.setAttribute('height', 24);
+        headerRect.setAttribute('fill', '#f9a825');
+        headerRect.setAttribute('rx', '4');
+        headerRect.setAttribute('class', 'sticky-note-header-bg');
+        headerRect.style.cursor = 'move';
+        noteGroup.appendChild(headerRect);
+        
+        // Cover bottom corners of header
+        const headerCover = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        headerCover.setAttribute('x', 0);
+        headerCover.setAttribute('y', 16);
+        headerCover.setAttribute('width', noteWidth);
+        headerCover.setAttribute('height', 8);
+        headerCover.setAttribute('fill', '#f9a825');
+        noteGroup.appendChild(headerCover);
+        
+        // Header text
+        const headerText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        headerText.setAttribute('x', 8);
+        headerText.setAttribute('y', 16);
+        headerText.setAttribute('font-size', '11');
+        headerText.setAttribute('fill', '#5d4037');
+        headerText.setAttribute('font-weight', '500');
+        headerText.textContent = 'Note';
+        headerText.style.pointerEvents = 'none';
+        headerText.style.userSelect = 'none';
+        noteGroup.appendChild(headerText);
+        
+        // Delete button
+        const deleteBtn = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        deleteBtn.setAttribute('x', noteWidth - 14);
+        deleteBtn.setAttribute('y', 17);
+        deleteBtn.setAttribute('font-size', '16');
+        deleteBtn.setAttribute('fill', '#5d4037');
+        deleteBtn.setAttribute('class', 'sticky-note-delete-btn');
+        deleteBtn.setAttribute('text-anchor', 'middle');
+        deleteBtn.textContent = '×';
+        deleteBtn.style.cursor = 'pointer';
+        noteGroup.appendChild(deleteBtn);
+        
+        // Create foreignObject for the textarea (text input)
+        const foreignObject = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+        foreignObject.setAttribute('x', 4);
+        foreignObject.setAttribute('y', 28);
+        foreignObject.setAttribute('width', noteWidth - 8);
+        foreignObject.setAttribute('height', noteHeight - 32);
+        
+        const textareaDiv = document.createElementNS('http://www.w3.org/1999/xhtml', 'div');
+        textareaDiv.style.width = '100%';
+        textareaDiv.style.height = '100%';
+        textareaDiv.innerHTML = `<textarea class="sticky-note-textarea" style="width:100%;height:100%;border:none;background:transparent;resize:none;font-family:'Segoe UI',sans-serif;font-size:13px;color:#333;outline:none;padding:4px;" placeholder="Type your note here...">${text}</textarea>`;
+        foreignObject.appendChild(textareaDiv);
+        noteGroup.appendChild(foreignObject);
+        
+        // Resize handle (bottom-right triangle)
+        const resizeHandle = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        resizeHandle.setAttribute('d', `M${noteWidth-16},${noteHeight} L${noteWidth},${noteHeight} L${noteWidth},${noteHeight-16} Z`);
+        resizeHandle.setAttribute('fill', '#f9a825');
+        resizeHandle.setAttribute('class', 'sticky-note-resize-handle');
+        resizeHandle.style.cursor = 'nwse-resize';
+        noteGroup.appendChild(resizeHandle);
+        
+        // Add to SVG
+        this.svg.appendChild(noteGroup);
+        
+        // Store note data
+        const noteData = {
+            id: noteId,
+            x: noteX,
+            y: noteY,
+            width: noteWidth,
+            height: noteHeight,
+            text: text,
+            element: noteGroup
+        };
+        this.stickyNotes.push(noteData);
+        
+        // Setup event handlers
+        this.setupStickyNoteDragSVG(noteGroup, headerRect, noteData);
+        this.setupStickyNoteResizeSVG(noteGroup, resizeHandle, bgRect, headerRect, headerCover, foreignObject, deleteBtn, noteData);
+        this.setupStickyNoteTextEditSVG(foreignObject, noteData);
+        this.setupStickyNoteDeleteSVG(noteGroup, deleteBtn, noteData);
+        
+        // Save state
+        this.saveStickyNotes();
+        
+        // Focus the textarea
+        const textarea = foreignObject.querySelector('.sticky-note-textarea');
+        if (textarea) {
+            setTimeout(() => textarea.focus(), 50);
+        }
+        
+        return noteData;
+    }
+    
+    setupStickyNoteDragSVG(noteGroup, headerRect, noteData) {
+        let isDragging = false;
+        let startX, startY, initialX, initialY;
+        
+        const onMouseDown = (e) => {
+            if (e.target.classList.contains('sticky-note-delete-btn')) return;
+            
+            isDragging = true;
+            
+            // Get mouse position in SVG coordinates
+            const pt = this.svg.createSVGPoint();
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+            const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+            
+            startX = svgP.x;
+            startY = svgP.y;
+            initialX = noteData.x;
+            initialY = noteData.y;
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        
+        const onMouseMove = (e) => {
+            if (!isDragging) return;
+            
+            const pt = this.svg.createSVGPoint();
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+            const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+            
+            const deltaX = svgP.x - startX;
+            const deltaY = svgP.y - startY;
+            
+            noteData.x = initialX + deltaX;
+            noteData.y = initialY + deltaY;
+            
+            noteGroup.setAttribute('transform', `translate(${noteData.x}, ${noteData.y})`);
+        };
+        
+        const onMouseUp = () => {
+            isDragging = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            this.saveStickyNotes();
+        };
+        
+        headerRect.addEventListener('mousedown', onMouseDown);
+    }
+    
+    setupStickyNoteResizeSVG(noteGroup, resizeHandle, bgRect, headerRect, headerCover, foreignObject, deleteBtn, noteData) {
+        let isResizing = false;
+        let startX, startY, initialWidth, initialHeight;
+        
+        const onMouseDown = (e) => {
+            isResizing = true;
+            
+            const pt = this.svg.createSVGPoint();
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+            const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+            
+            startX = svgP.x;
+            startY = svgP.y;
+            initialWidth = noteData.width;
+            initialHeight = noteData.height;
+            
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+            e.preventDefault();
+            e.stopPropagation();
+        };
+        
+        const onMouseMove = (e) => {
+            if (!isResizing) return;
+            
+            const pt = this.svg.createSVGPoint();
+            pt.x = e.clientX;
+            pt.y = e.clientY;
+            const svgP = pt.matrixTransform(this.svg.getScreenCTM().inverse());
+            
+            const deltaX = svgP.x - startX;
+            const deltaY = svgP.y - startY;
+            
+            const newWidth = Math.max(150, initialWidth + deltaX);
+            const newHeight = Math.max(100, initialHeight + deltaY);
+            
+            noteData.width = newWidth;
+            noteData.height = newHeight;
+            
+            // Update all elements
+            bgRect.setAttribute('width', newWidth);
+            bgRect.setAttribute('height', newHeight);
+            headerRect.setAttribute('width', newWidth);
+            headerCover.setAttribute('width', newWidth);
+            foreignObject.setAttribute('width', newWidth - 8);
+            foreignObject.setAttribute('height', newHeight - 32);
+            deleteBtn.setAttribute('x', newWidth - 14);
+            resizeHandle.setAttribute('d', `M${newWidth-16},${newHeight} L${newWidth},${newHeight} L${newWidth},${newHeight-16} Z`);
+        };
+        
+        const onMouseUp = () => {
+            isResizing = false;
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+            this.saveStickyNotes();
+        };
+        
+        resizeHandle.addEventListener('mousedown', onMouseDown);
+    }
+    
+    setupStickyNoteTextEditSVG(foreignObject, noteData) {
+        const textarea = foreignObject.querySelector('.sticky-note-textarea');
+        if (!textarea) return;
+        
+        let saveTimeout;
+        
+        const saveText = () => {
+            noteData.text = textarea.value;
+            this.saveStickyNotes();
+        };
+        
+        textarea.addEventListener('input', () => {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(saveText, 300);
+        });
+        
+        textarea.addEventListener('blur', () => {
+            clearTimeout(saveTimeout);
+            saveText();
+        });
+    }
+    
+    setupStickyNoteDeleteSVG(noteGroup, deleteBtn, noteData) {
+        deleteBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            
+            noteGroup.remove();
+            
+            const index = this.stickyNotes.findIndex(n => n.id === noteData.id);
+            if (index !== -1) {
+                this.stickyNotes.splice(index, 1);
+            }
+            
+            this.saveStickyNotes();
+        });
+    }
+    
+    findNonOverlappingPosition(noteWidth, noteHeight) {
+        const padding = 20;
+        const gridSize = 30;
+        
+        // Collect all occupied rectangles (processes, existing sticky notes) in SVG coordinates
+        const occupiedRects = [];
+        
+        // Add process boxes as occupied areas
+        Object.entries(this.positions).forEach(([processId, pos]) => {
+            occupiedRects.push({
+                x: pos.x - padding,
+                y: pos.y - padding,
+                width: this.processWidth + padding * 2,
+                height: this.processHeight + padding * 2
+            });
+        });
+        
+        // Add existing sticky notes as occupied areas
+        this.stickyNotes.forEach(note => {
+            occupiedRects.push({
+                x: note.x - padding,
+                y: note.y - padding,
+                width: note.width + padding * 2,
+                height: note.height + padding * 2
+            });
+        });
+        
+        // Use the current viewBox to find visible area
+        const startX = this.viewBox.x + padding;
+        const startY = this.viewBox.y + padding;
+        const maxX = this.viewBox.x + this.viewBox.width - noteWidth - padding;
+        const maxY = this.viewBox.y + this.viewBox.height - noteHeight - padding;
+        
+        // Start from top-right of visible area and search for an empty spot
+        for (let y = startY; y <= maxY; y += gridSize) {
+            for (let x = maxX; x >= startX; x -= gridSize) {
+                const candidateRect = {
+                    x: x,
+                    y: y,
+                    width: noteWidth,
+                    height: noteHeight
+                };
+                
+                if (!this.rectsOverlap(candidateRect, occupiedRects)) {
+                    return { x, y };
+                }
+            }
+        }
+        
+        // If no non-overlapping position found, cascade from top-left of visible area
+        const cascadeOffset = this.stickyNotes.length * 30;
+        return {
+            x: startX + (cascadeOffset % Math.max(maxX - startX, 100)),
+            y: startY + (cascadeOffset % Math.max(maxY - startY, 100))
+        };
+    }
+    
+    rectsOverlap(rect, occupiedRects) {
+        for (const occupied of occupiedRects) {
+            if (rect.x < occupied.x + occupied.width &&
+                rect.x + rect.width > occupied.x &&
+                rect.y < occupied.y + occupied.height &&
+                rect.y + rect.height > occupied.y) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    saveStickyNotes() {
+        const notesData = this.stickyNotes.map(note => ({
+            id: note.id,
+            x: note.x,
+            y: note.y,
+            width: note.width,
+            height: note.height,
+            text: note.text
+        }));
+        
+        localStorage.setItem('vsmStickyNotes', JSON.stringify(notesData));
+    }
+    
+    loadStickyNotes() {
+        const savedNotes = localStorage.getItem('vsmStickyNotes');
+        if (savedNotes) {
+            try {
+                const notesData = JSON.parse(savedNotes);
+                // Clear existing notes
+                this.stickyNotes = [];
+                
+                // Remove any existing sticky note groups from SVG
+                const existingNotes = this.svg.querySelectorAll('.sticky-note-group');
+                existingNotes.forEach(note => note.remove());
+                
+                // Recreate each note
+                notesData.forEach(noteData => {
+                    this.addStickyNote(
+                        noteData.x,
+                        noteData.y,
+                        noteData.text,
+                        noteData.id,
+                        noteData.width,
+                        noteData.height
+                    );
+                });
+            } catch (e) {
+                console.error('Error loading sticky notes:', e);
+            }
+        }
+    }
+    
+    clearStickyNotes() {
+        // Remove from SVG
+        const existingNotes = this.svg.querySelectorAll('.sticky-note-group');
+        existingNotes.forEach(note => note.remove());
+        
+        this.stickyNotes = [];
+        this.saveStickyNotes();
+    }
+    
+    redrawStickyNotes() {
+        // Remove existing sticky notes from SVG
+        const existingNotes = this.svg.querySelectorAll('.sticky-note-group');
+        existingNotes.forEach(note => note.remove());
+        
+        // Recreate from stored data
+        const notesToRedraw = [...this.stickyNotes];
+        this.stickyNotes = [];
+        
+        notesToRedraw.forEach(noteData => {
+            this.addStickyNote(
+                noteData.x,
+                noteData.y,
+                noteData.text,
+                noteData.id,
+                noteData.width,
+                noteData.height
+            );
+        });
+    }
 }

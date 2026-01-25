@@ -7,6 +7,7 @@ html, body {
     height: 100%;
     margin: 0;
     padding: 0;
+    overflow: hidden;
 }
 
 body {
@@ -20,38 +21,22 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    max-height: 100vh;
     background: white;
     box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
-}
-
-.header {
-    text-align: center;
-    padding: 20px;
-    flex-shrink: 0;
-    border-bottom: 1px solid #ecf0f1;
-}
-
-.header h1 {
-    color: #2c3e50;
-    margin: 0 0 10px 0;
-    font-size: 1.8em;
-}
-
-.header p {
-    color: #7f8c8d;
-    margin: 0;
-    font-size: 0.9em;
+    overflow: hidden;
 }
 
 .main-content {
     display: flex;
     position: relative;
     flex: 1;
+    min-height: 0;
     overflow: hidden;
     gap: 0;
 }
 
-.editor-panel, .visualization-panel {
+.editor-panel {
     background: #f8f9fa;
     border-radius: 8px;
     padding: 15px;
@@ -75,6 +60,13 @@ body {
     position: absolute;
     left: 0;
     width: 400px;
+    z-index: 150;
+    height: 100%;
+}
+
+.editor-panel.collapsed .editor-toggle {
+    right: -40px;
+    position: absolute;
 }
 
 .pane-splitter {
@@ -103,7 +95,10 @@ body {
 .visualization-panel {
     flex: 1;
     min-width: 200px;
-    overflow: auto;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: #f8f9fa;
 }
 
 .editor-toggle {
@@ -119,7 +114,7 @@ body {
     cursor: pointer;
     border-radius: 0 4px 4px 0;
     font-size: 20px;
-    z-index: 100;
+    z-index: 200;
 }
 
 .editor-toggle:hover {
@@ -171,9 +166,11 @@ body {
 }
 
 .canvas-container {
+    flex: 1;
     border: 1px solid #ddd;
-    border-radius: 4px;
     background: white;
+    position: relative;
+    overflow: hidden;
 }
 
 .process-box {
@@ -594,4 +591,159 @@ body {
 
 .breakdown-total .breakdown-value {
     color: #3498db;
+}
+
+/* Toolbar Styles */
+.vsm-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 8px 15px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #ddd;
+    gap: 8px;
+    flex-shrink: 0;
+    z-index: 100;
+}
+
+.toolbar-button {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    color: #2c3e50;
+    transition: all 0.2s ease;
+}
+
+.toolbar-button:hover {
+    background: #fff9c4;
+    border-color: #f9a825;
+}
+
+.toolbar-button:active {
+    transform: scale(0.97);
+}
+
+.toolbar-button svg {
+    flex-shrink: 0;
+}
+
+/* Sticky Notes Container - no longer used but kept for backwards compatibility */
+#stickyNotesContainer {
+    display: none;
+}
+
+/* Sticky Note Styles - now inside SVG foreignObject */
+.sticky-note-foreign {
+    overflow: visible;
+    /* Ensure foreignObject participates in SVG coordinate system */
+}
+
+.sticky-note-inner {
+    width: 100%;
+    height: 100%;
+    background: #fff9c4;
+    border: 1px solid #f9a825;
+    border-radius: 4px;
+    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    position: relative;
+    /* Reset any inherited transforms */
+    transform: none;
+}
+
+.sticky-note-inner.dragging {
+    opacity: 0.9;
+    box-shadow: 4px 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.sticky-note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 8px;
+    background: #f9a825;
+    cursor: move;
+    border-radius: 3px 3px 0 0;
+    flex-shrink: 0;
+}
+
+.sticky-note-header span {
+    font-size: 11px;
+    color: #5d4037;
+    font-weight: 500;
+    user-select: none;
+}
+
+.sticky-note-delete {
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: transparent;
+    color: #5d4037;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 3px;
+    transition: background 0.2s;
+}
+
+.sticky-note-delete:hover {
+    background: rgba(0, 0, 0, 0.1);
+}
+
+.sticky-note-content {
+    flex: 1;
+    padding: 8px;
+    overflow: hidden;
+    display: flex;
+}
+
+.sticky-note-textarea {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: transparent;
+    resize: none;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-size: 13px;
+    color: #333;
+    line-height: 1.4;
+    outline: none;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.sticky-note-textarea::placeholder {
+    color: #999;
+}
+
+.sticky-note-resize {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 50%, #f9a825 50%);
+    border-radius: 0 0 3px 0;
+}
+
+.sticky-note-resize:hover {
+    background: linear-gradient(135deg, transparent 50%, #e65100 50%);
+}
+
+/* Canvas container position context for sticky notes */
+.canvas-container {
+    position: relative;
 }
