@@ -284,6 +284,8 @@ export default class VSMVisualizer {
             if (e.button === 2 && this.isPanning) {
                 this.isPanning = false;
                 this.svg.style.cursor = 'default';
+                // Save view state after panning
+                this.saveViewState();
             }
 
             // Handle flow drag end
@@ -325,6 +327,9 @@ export default class VSMVisualizer {
                 this.zoomLevel = newZoom;
                 this.svg.setAttribute('viewBox', 
                     `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`);
+                
+                // Save view state after zooming
+                this.saveViewState();
             }
         }, { passive: false });
     }
@@ -857,6 +862,39 @@ export default class VSMVisualizer {
 
         // Save to localStorage as backup
         localStorage.setItem('vsmState', JSON.stringify(currentState));
+        
+        // Save viewBox state separately so it persists across sessions
+        this.saveViewState();
+    }
+    
+    saveViewState() {
+        const viewState = {
+            viewBox: { ...this.viewBox },
+            zoomLevel: this.zoomLevel
+        };
+        console.log('Saving view state:', viewState);
+        localStorage.setItem('vsmViewState', JSON.stringify(viewState));
+    }
+    
+    loadViewState() {
+        const savedViewState = localStorage.getItem('vsmViewState');
+        console.log('Loading view state:', savedViewState);
+        if (savedViewState) {
+            try {
+                const viewState = JSON.parse(savedViewState);
+                if (viewState.viewBox) {
+                    this.viewBox = { ...viewState.viewBox };
+                    this.zoomLevel = viewState.zoomLevel || 1;
+                    const viewBoxStr = `${this.viewBox.x} ${this.viewBox.y} ${this.viewBox.width} ${this.viewBox.height}`;
+                    console.log('Restoring viewBox to:', viewBoxStr);
+                    this.svg.setAttribute('viewBox', viewBoxStr);
+                    return true;
+                }
+            } catch (e) {
+                console.error('Error loading view state:', e);
+            }
+        }
+        return false;
     }
 
     visualize(data, options = {}) {
@@ -957,8 +995,13 @@ export default class VSMVisualizer {
         if (savedState) {
             try {
                 const state = JSON.parse(savedState);
-                // Apply the saved state
-                this.visualize(state);
+                // Apply the saved state (with preserveView to prevent fitCanvasToContent)
+                this.visualize(state, { preserveView: true });
+                // Try to restore the saved view position
+                // If no saved view state exists, fit canvas to content
+                if (!this.loadViewState()) {
+                    this.fitCanvasToContent();
+                }
                 return true;
             } catch (e) {
                 console.error('Error loading saved state:', e);
