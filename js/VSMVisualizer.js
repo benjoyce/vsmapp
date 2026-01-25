@@ -4,7 +4,7 @@ export default class VSMVisualizer {
         this.width = 900;
         this.height = 700;
         this.processWidth = 160;
-        this.processHeight = 120;
+        this.processHeight = 135;
         this.positions = {};
         this.currentFlows = [];
         this.currentInfoFlows = [];
@@ -435,10 +435,12 @@ export default class VSMVisualizer {
 
             // Process attributes
             const calculatedCT = this.calculateCycleTime(process);
+            const calculatedPCE = this.calculateProcessPCE(processId, process);
             const attributes = [
                 { key: 'PT', value: process.attributes.process_time || 'N/A', attr: 'process_time' },
                 { key: 'WT', value: process.attributes.wait_time || 'N/A', attr: 'wait_time' },
-                { key: 'CT', value: calculatedCT, attr: 'cycle_time', calculated: true }
+                { key: 'CT', value: calculatedCT, attr: 'cycle_time', calculated: true },
+                { key: 'PCE', value: calculatedPCE, attr: 'process_pce', calculated: true }
             ];
 
             attributes.forEach((attr, i) => {
@@ -461,7 +463,7 @@ export default class VSMVisualizer {
             // Owner text
             const owner = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             owner.setAttribute('x', pos.x + this.processWidth / 2);
-            owner.setAttribute('y', pos.y + 110);
+            owner.setAttribute('y', pos.y + 125);
             owner.setAttribute('class', 'process-details');
             owner.setAttribute('font-style', 'italic');
             owner.textContent = process.attributes.owner || '';
@@ -1237,6 +1239,29 @@ export default class VSMVisualizer {
         } else {
             return `${(totalTime * 28800).toFixed(0)}s`;
         }
+    }
+
+    calculateProcessPCE(processId, process) {
+        const ptTime = this.convertTimeToStandardUnit(process.attributes.process_time);
+        const wtTime = this.convertTimeToStandardUnit(process.attributes.wait_time);
+        
+        // Find upstream wait time (from flow coming into this process)
+        let upstreamWT = 0;
+        if (this.currentFlows) {
+            const incomingFlow = this.currentFlows.find(flow => flow.to === processId);
+            if (incomingFlow && incomingFlow.wait_time) {
+                upstreamWT = this.convertTimeToStandardUnit(incomingFlow.wait_time);
+            }
+        }
+        
+        const totalTime = ptTime + wtTime + upstreamWT;
+        
+        if (totalTime === 0) {
+            return 'N/A';
+        }
+        
+        const pce = (ptTime / totalTime) * 100;
+        return `${pce.toFixed(1)}%`;
     }
 
     // Add this new time conversion utility method to the VSMVisualizer class
